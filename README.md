@@ -146,8 +146,10 @@ generator** — every action posts structured params to `/db/*`, the server turn
 them into SQL (`SqlBuilder`), and that exact SQL runs through the same
 `ExecutionPipeline` and is shown next to the result as evidence.
 
-- **Tables sidebar** + **create-table** builder (column name/type/null/PK/auto-inc;
-  datatypes come from `SqlBuilder::TYPES`).
+- **Tables sidebar** + **create-table** builder (column name/type/size/null/PK/
+  auto-inc). The type dropdown comes from `SqlBuilder::catalog()`; `VARCHAR`/`CHAR`
+  take a length and `DECIMAL` a `precision,scale`, validated server-side as
+  integers within range (so the size can't inject SQL).
 - **Data browser** — paginated `SELECT` with a selectable page size (10/25/50/100)
   and a **Browse / Structure** tab toggle; Structure lists each column's type,
   nullability, key, default, and extra (and shows the `SHOW COLUMNS` SQL that
@@ -199,7 +201,6 @@ by the `.htaccess` deny rule; the filename comes from `Content-Disposition`.)
 ## Not yet built (next steps)
 
 - Docker packaging (deferred — dev is on XAMPP).
-- Optional: expanding the create-table datatype list / configurable lengths.
 - Optional hardening not in the original spec: CSRF tokens on POST forms.
 
 Note: ALTER, indexes, and foreign keys are intentionally SQL-console-only (the

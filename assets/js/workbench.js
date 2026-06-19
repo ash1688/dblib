@@ -306,12 +306,14 @@
     function showCreateTable() {
         state.table = null;
         document.querySelectorAll('.wb-table-btn').forEach((b) => b.classList.remove('active'));
-        const typeOpts = TYPES.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+        // TYPES is the catalogue: [{type, param, default, placeholder}, ...]
+        const typeOpts = TYPES.map((t) =>
+            `<option value="${esc(t.type)}" data-param="${esc(t.param || '')}" data-default="${esc(t.default)}" data-ph="${esc(t.placeholder)}">${esc(t.type)}</option>`).join('');
         elView.innerHTML = `<div class="wb-toolbar"><h2>Create table</h2></div>
             <form id="wb-create-form">
                 <label>Table name <input type="text" id="wb-ct-name" required autocapitalize="none"></label>
                 <table class="grid wb-cols">
-                    <thead><tr><th>Column</th><th>Type</th><th>Null</th><th>PK</th><th>Auto&nbsp;inc.</th><th></th></tr></thead>
+                    <thead><tr><th>Column</th><th>Type</th><th>Size</th><th>Null</th><th>PK</th><th>Auto&nbsp;inc.</th><th></th></tr></thead>
                     <tbody id="wb-ct-rows"></tbody>
                 </table>
                 <button type="button" class="link" id="wb-add-col">＋ Add column</button>
@@ -332,12 +334,26 @@
         tr.innerHTML = `
             <td><input type="text" class="ct-name" value="${seed ? 'id' : ''}" autocapitalize="none"></td>
             <td><select class="ct-type">${typeOpts}</select></td>
+            <td><input type="text" class="ct-size" placeholder=""></td>
             <td class="center"><input type="checkbox" class="ct-null"></td>
             <td class="center"><input type="checkbox" class="ct-pk" ${seed ? 'checked' : ''}></td>
             <td class="center"><input type="checkbox" class="ct-ai" ${seed ? 'checked' : ''}></td>
             <td><button type="button" class="link danger ct-remove">✕</button></td>`;
         document.getElementById('wb-ct-rows').appendChild(tr);
         tr.querySelector('.ct-remove').onclick = () => tr.remove();
+
+        // The Size field is enabled only for types that take one (VARCHAR/CHAR/DECIMAL).
+        const sel = tr.querySelector('.ct-type');
+        const size = tr.querySelector('.ct-size');
+        const syncSize = () => {
+            const opt = sel.options[sel.selectedIndex];
+            const param = opt.dataset.param;
+            size.disabled = !param;
+            size.placeholder = param ? opt.dataset.ph : '—';
+            size.value = param ? opt.dataset.default : '';
+        };
+        sel.onchange = syncSize;
+        syncSize();
     }
 
     async function submitCreateTable(e) {
@@ -346,6 +362,7 @@
         const columns = [...document.querySelectorAll('#wb-ct-rows tr')].map((tr) => ({
             name: tr.querySelector('.ct-name').value.trim(),
             type: tr.querySelector('.ct-type').value,
+            size: tr.querySelector('.ct-size').value.trim(),
             nullable: tr.querySelector('.ct-null').checked,
             primary: tr.querySelector('.ct-pk').checked,
             autoIncrement: tr.querySelector('.ct-ai').checked,

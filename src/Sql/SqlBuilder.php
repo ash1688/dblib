@@ -18,24 +18,67 @@ use PDO;
 final class SqlBuilder
 {
     /**
-     * Datatypes offered in the create-table builder. This is the (previously
-     * deferred) starter list — extend here to add more. Submitted types are
-     * validated against this allow-list, so the type string can't inject SQL.
-     *
-     * @var list<string>
+     * Base datatypes offered in the create-table builder, mapped to their size
+     * parameter (null = none, 'length' = one integer, 'decimal' = precision,scale).
+     * A submitted base type is validated against these keys and any size is built
+     * from validated integers, so the generated type fragment can't inject SQL.
      */
-    public const TYPES = [
-        'INT', 'INT UNSIGNED', 'BIGINT', 'DECIMAL(10,2)',
-        'VARCHAR(255)', 'VARCHAR(50)', 'TEXT',
-        'DATE', 'DATETIME', 'TIMESTAMP', 'BOOLEAN',
+    private const TYPE_SPECS = [
+        'INT'          => null,
+        'INT UNSIGNED' => null,
+        'TINYINT'      => null,
+        'SMALLINT'     => null,
+        'BIGINT'       => null,
+        'FLOAT'        => null,
+        'DOUBLE'       => null,
+        'BOOLEAN'      => null,
+        'DECIMAL'      => 'decimal',
+        'CHAR'         => 'length',
+        'VARCHAR'      => 'length',
+        'TEXT'         => null,
+        'DATE'         => null,
+        'TIME'         => null,
+        'DATETIME'     => null,
+        'TIMESTAMP'    => null,
+        'YEAR'         => null,
     ];
+
+    /** Bounds for the 'length' types. */
+    private const LENGTH_BOUNDS = [
+        'CHAR'    => ['min' => 1, 'max' => 255,   'default' => 1],
+        'VARCHAR' => ['min' => 1, 'max' => 65535, 'default' => 255],
+    ];
+
+    /**
+     * UI catalogue for the builder dropdown: each base type with how its size
+     * field should behave (which the front-end uses to show/hint the input).
+     *
+     * @return list<array{type:string,param:?string,default:string,placeholder:string}>
+     */
+    public static function catalog(): array
+    {
+        $out = [];
+        foreach (self::TYPE_SPECS as $type => $param) {
+            $default = '';
+            $placeholder = '';
+            if ($param === 'length') {
+                $default = (string) self::LENGTH_BOUNDS[$type]['default'];
+                $placeholder = 'length, e.g. ' . $default;
+            } elseif ($param === 'decimal') {
+                $default = '10,2';
+                $placeholder = 'precision,scale, e.g. 10,2';
+            }
+            $out[] = ['type' => $type, 'param' => $param, 'default' => $default, 'placeholder' => $placeholder];
+        }
+        return $out;
+    }
 
     public function __construct(private readonly PDO $pdo)
     {
     }
 
     /**
-     * @param list<array{name:string,type:string,nullable?:bool,primary?:bool,autoIncrement?:bool}> $columns
+     * @param list<array{name:string,type:string,size?:string,nullable?:bool,primary?:bool,autoIncrement?:bool}> $columns
      */
     public function createTable(string $table, array $columns): string
     {
@@ -46,11 +89,8 @@ final class SqlBuilder
         $defs = [];
         $primary = [];
         foreach ($columns as $col) {
-            $type = (string) ($col['type'] ?? '');
-            if (!in_array($type, self::TYPES, true)) {
-                throw new SqlException("Unknown column type \"{$type}\".");
-            }
-            $line = Identifier::quote((string) ($col['name'] ?? '')) . ' ' . $type;
+            $sqlType = $this->columnType((string) ($col['type'] ?? ''), (string) ($col['size'] ?? ''));
+            $line = Identifier::quote((string) ($col['name'] ?? '')) . ' ' . $sqlType;
             $line .= !empty($col['nullable']) ? ' NULL' : ' NOT NULL';
             if (!empty($col['autoIncrement'])) {
                 $line .= ' AUTO_INCREMENT';
@@ -152,5 +192,69 @@ final class SqlBuilder
                 : "{$col} = " . $this->pdo->quote((string) ($w['value'] ?? ''));
         }
         return implode(' AND ', $parts);
+    }
+
+    /**
+     * Validate a base type from the allow-list and build its full type string,
+     * applying a validated size/precision where the type takes one. The size is
+     * never interpolated raw — only integers that passed range checks.
+     */
+    private function columnType(string $base, string $size): string
+    {
+        if (!array_key_exists($base, self::TYPE_SPECS)) {
+            throw new SqlException("Unknown column type \"{$base}\".");
+        }
+        $param = self::TYPE_SPECS[$base];
+
+        if ($param === null) {
+            return $base;
+        }
+        if ($param === 'decimal') {
+            [$precision, $scale] = $this->parseDecimal($size);
+            return "DECIMAL({$precision},{$scale})";
+        }
+        return "{$base}(" . $this->parseLength($base, $size) . ')';
+    }
+
+    private function parseLength(string $base, string $size): int
+    {
+        $bounds = self::LENGTH_BOUNDS[$base];
+        $size = trim($size);
+        if ($size === '') {
+            return $bounds['default'];
+        }
+        if (!ctype_digit($size)) {
+            throw new SqlException("{$base} length must be a whole number.");
+        }
+        $n = (int) $size;
+        if ($n < $bounds['min'] || $n > $bounds['max']) {
+            throw new SqlException("{$base} length must be between {$bounds['min']} and {$bounds['max']}.");
+        }
+        return $n;
+    }
+
+    /** @return array{0:int,1:int} [precision, scale] */
+    private function parseDecimal(string $size): array
+    {
+        $size = trim($size);
+        if ($size === '') {
+            return [10, 2];
+        }
+        $parts = array_map('trim', explode(',', $size));
+        if (count($parts) !== 2 || !ctype_digit($parts[0]) || !ctype_digit($parts[1])) {
+            throw new SqlException('DECIMAL needs precision,scale — e.g. 10,2.');
+        }
+        $precision = (int) $parts[0];
+        $scale = (int) $parts[1];
+        if ($precision < 1 || $precision > 65) {
+            throw new SqlException('DECIMAL precision must be between 1 and 65.');
+        }
+        if ($scale < 0 || $scale > 30) {
+            throw new SqlException('DECIMAL scale must be between 0 and 30.');
+        }
+        if ($scale > $precision) {
+            throw new SqlException('DECIMAL scale cannot exceed its precision.');
+        }
+        return [$precision, $scale];
     }
 }

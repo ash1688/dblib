@@ -230,6 +230,8 @@ button.danger { background: rgba(255,107,107,.15); color: var(--err); }
 .wb-form-actions { display: flex; gap: 10px; margin-top: 16px; }
 
 .wb-cols input[type=text], .wb-cols select { margin: 0; }
+.wb-cols .ct-size { width: 9em; }
+.wb-cols .ct-size:disabled { opacity: .45; }
 .wb-cols td.center, .wb-cols th { text-align: center; }
 .wb-cols td:first-child, .wb-cols td:nth-child(2) { text-align: left; }
 #wb-add-col { margin-top: 8px; display: inline-block; }

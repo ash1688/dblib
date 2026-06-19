@@ -49,7 +49,7 @@ final class DbController
         return Response::html(View::render('db', [
             'basePath'   => $request->basePath(),
             'user'       => $student,
-            'types'      => SqlBuilder::TYPES,
+            'types'      => SqlBuilder::catalog(),
             // Teacher-on-student context: thread the target id and show a banner.
             'targetUser' => $self ? '' : (string) $student['id'],
             'banner'     => $self ? null : "You are editing {$label}’s database (" . $student['student_id'] . '). Changes are live.',

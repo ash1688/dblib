@@ -136,7 +136,8 @@ final class TeacherController
             return Response::redirect($request->basePath() . '/teacher');
         }
 
-        $reset = $request->input('reset', '') !== '';
+        // Teacher chooses the mode: reset-then-load (default) or append.
+        $reset = $request->input('mode', 'reset') !== 'append';
         $runner = new SeedRunner(new SandboxConnector());
         $_SESSION['seed_results'] = [
             'seed'    => $seed['name'],

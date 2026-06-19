@@ -114,8 +114,12 @@ ob_start(); ?>
 <section class="card">
     <h2>Seeds (starter datasets)</h2>
     <p class="muted">A seed is a SQL script (schema + sample data) you push to the
-       whole class. Default is reset-then-load: each student's tables are dropped,
-       then the script runs — so everyone gets an identical dataset.</p>
+       whole class. Choose how to apply it:
+       <strong>Reset then load</strong> drops each student's tables first, then runs
+       the script — everyone gets an identical dataset.
+       <strong>Append</strong> runs the script over existing data without dropping
+       (use <code>CREATE TABLE IF NOT EXISTS</code> / <code>INSERT</code> so it
+       doesn't clash with tables already there).</p>
 
     <?php if ($seedResults !== null): ?>
         <h3>Applied “<?= View::e($seedResults['seed']) ?>”
@@ -154,7 +158,10 @@ ob_start(); ?>
                         <td class="wb-row-actions">
                             <form method="post" action="<?= View::e($basePath) ?>/teacher/seed/apply" class="inline">
                                 <input type="hidden" name="seed_id" value="<?= (int) $s['id'] ?>">
-                                <label class="inline-check"><input type="checkbox" name="reset" value="1" checked> reset</label>
+                                <select name="mode" class="seed-mode" title="Reset drops each student's tables first; Append runs the script over existing data.">
+                                    <option value="reset">Reset then load</option>
+                                    <option value="append">Append</option>
+                                </select>
                                 <button type="submit" class="link"
                                     onclick="return confirm('Apply “<?= View::e($s['name']) ?>” to all <?= count($students) ?> student(s)?');">Apply to class</button>
                             </form>

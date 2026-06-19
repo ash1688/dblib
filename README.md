@@ -125,9 +125,13 @@ Both enrolment paths funnel through `StudentEnroller` (create validated account
 On a class page a teacher can save **seed** scripts (schema + sample data) and
 push one to the whole class:
 
-- **Reset-then-load** (default) drops each student's existing tables (FK checks
-  off), then runs the script — so the class shares one identical dataset.
-  Re-applying is idempotent.
+- The teacher picks the apply mode per push:
+  - **Reset then load** (default) drops each student's existing tables (FK checks
+    off), then runs the script — the class shares one identical dataset, and
+    re-applying is idempotent.
+  - **Append** runs the script over existing data without dropping (use
+    `CREATE TABLE IF NOT EXISTS` / `INSERT` so it doesn't clash with tables
+    already there) — for adding to what students have built.
 - The script is split into statements and each runs through the **same
   `ExecutionPipeline`** students use, so the single-statement and `DROP DATABASE`
   guards apply — a seed can't drop a sandbox either. Failures are reported
@@ -195,8 +199,8 @@ by the `.htaccess` deny rule; the filename comes from `Content-Disposition`.)
 ## Not yet built (next steps)
 
 - Docker packaging (deferred — dev is on XAMPP).
-- Minor deferred decisions: seed *append* mode (default is reset), expanding the
-  create-table datatype list.
+- Optional: expanding the create-table datatype list / configurable lengths.
+- Optional hardening not in the original spec: CSRF tokens on POST forms.
 
 Note: ALTER, indexes, and foreign keys are intentionally SQL-console-only (the
 design keeps them out of the GUI), so no builders are planned for them.

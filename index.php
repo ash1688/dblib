@@ -9,6 +9,7 @@ require __DIR__ . '/bootstrap.php';
 
 use Dblib\Http\Request;
 use Dblib\Http\Router;
+use Dblib\Support\Csrf;
 use Dblib\Controllers\AccountController;
 use Dblib\Controllers\AuthController;
 use Dblib\Controllers\DashboardController;
@@ -21,6 +22,15 @@ use Dblib\Controllers\TeacherController;
 session_start();
 
 $request = Request::capture();
+
+// CSRF: every state-changing request must carry the session token.
+if ($request->method === 'POST' && !Csrf::verify()) {
+    http_response_code(403);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo "403 Forbidden — invalid or missing security token. Reload the page and try again.";
+    return;
+}
+
 $router  = new Router($request->basePath());
 
 $router->get('/',            [DashboardController::class, 'index']);

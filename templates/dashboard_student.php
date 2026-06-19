@@ -26,6 +26,7 @@ ob_start(); ?>
 <section class="card narrow-form">
     <h2>Change password</h2>
     <form method="post" action="<?= View::e($basePath) ?>/account/password">
+        <?= \Dblib\Support\Csrf::field() ?>
         <label>Current password <input type="password" name="current" required autocomplete="current-password"></label>
         <label>New password <input type="password" name="new" required autocomplete="new-password"></label>
         <label>Confirm new password <input type="password" name="confirm" required autocomplete="new-password"></label>

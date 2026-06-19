@@ -56,12 +56,14 @@ ob_start(); ?>
                             <a class="link" href="<?= View::e($basePath) ?>/db?user_id=<?= (int) $s['id'] ?>">Open DB</a>
                             <form method="post" action="<?= View::e($basePath) ?>/teacher/student/reset-password"
                                   class="inline" onsubmit="return confirm('Reset <?= View::e($s['student_id']) ?>\'s password to a new temporary one?');">
+                                <?= \Dblib\Support\Csrf::field() ?>
                                 <input type="hidden" name="user_id" value="<?= (int) $s['id'] ?>">
                                 <input type="hidden" name="class_id" value="<?= $cid ?>">
                                 <button type="submit" class="link">Reset pw</button>
                             </form>
                             <form method="post" action="<?= View::e($basePath) ?>/teacher/student/delete"
                                   class="inline" onsubmit="return confirm('Remove <?= View::e($s['student_id']) ?> and delete their sandbox?');">
+                                <?= \Dblib\Support\Csrf::field() ?>
                                 <input type="hidden" name="user_id" value="<?= (int) $s['id'] ?>">
                                 <input type="hidden" name="class_id" value="<?= $cid ?>">
                                 <button type="submit" class="link danger">Remove</button>
@@ -79,6 +81,7 @@ ob_start(); ?>
     <section class="card">
         <h2>Add a student</h2>
         <form method="post" action="<?= View::e($basePath) ?>/teacher/student/create">
+            <?= \Dblib\Support\Csrf::field() ?>
             <input type="hidden" name="class_id" value="<?= $cid ?>">
             <label>Student ID *
                 <input type="text" name="student_id" required autocapitalize="none">
@@ -102,6 +105,7 @@ ob_start(); ?>
            optionally <code>name</code>, <code>email</code>, <code>password</code>.
            Missing passwords are generated. Existing IDs are skipped.</p>
         <form method="post" action="<?= View::e($basePath) ?>/teacher/student/import" enctype="multipart/form-data">
+            <?= \Dblib\Support\Csrf::field() ?>
             <input type="hidden" name="class_id" value="<?= $cid ?>">
             <label>CSV file
                 <input type="file" name="roster" accept=".csv,text/csv" required>
@@ -157,6 +161,7 @@ ob_start(); ?>
                         <td><?= $s['apply_on_enrol'] ? 'yes' : '—' ?></td>
                         <td class="wb-row-actions">
                             <form method="post" action="<?= View::e($basePath) ?>/teacher/seed/apply" class="inline">
+                                <?= \Dblib\Support\Csrf::field() ?>
                                 <input type="hidden" name="seed_id" value="<?= (int) $s['id'] ?>">
                                 <select name="mode" class="seed-mode" title="Reset drops each student's tables first; Append runs the script over existing data.">
                                     <option value="reset">Reset then load</option>
@@ -167,6 +172,7 @@ ob_start(); ?>
                             </form>
                             <form method="post" action="<?= View::e($basePath) ?>/teacher/seed/delete" class="inline"
                                   onsubmit="return confirm('Delete this seed?');">
+                                <?= \Dblib\Support\Csrf::field() ?>
                                 <input type="hidden" name="seed_id" value="<?= (int) $s['id'] ?>">
                                 <button type="submit" class="link danger">Delete</button>
                             </form>
@@ -180,6 +186,7 @@ ob_start(); ?>
 
     <h3>New seed</h3>
     <form method="post" action="<?= View::e($basePath) ?>/teacher/seed/create">
+        <?= \Dblib\Support\Csrf::field() ?>
         <input type="hidden" name="class_id" value="<?= $cid ?>">
         <label>Name
             <input type="text" name="name" required placeholder="e.g. Library schema v1">

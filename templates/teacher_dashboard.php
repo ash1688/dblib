@@ -36,6 +36,7 @@ ob_start(); ?>
 <section class="card narrow-form">
     <h2>New class</h2>
     <form method="post" action="<?= View::e($basePath) ?>/teacher/class/create">
+        <?= \Dblib\Support\Csrf::field() ?>
         <label>Class name
             <input type="text" name="name" required placeholder="e.g. Databases — Group A">
         </label>
@@ -46,6 +47,7 @@ ob_start(); ?>
 <section class="card narrow-form">
     <h2>Change password</h2>
     <form method="post" action="<?= View::e($basePath) ?>/account/password">
+        <?= \Dblib\Support\Csrf::field() ?>
         <label>Current password <input type="password" name="current" required autocomplete="current-password"></label>
         <label>New password <input type="password" name="new" required autocomplete="new-password"></label>
         <label>Confirm new password <input type="password" name="confirm" required autocomplete="new-password"></label>

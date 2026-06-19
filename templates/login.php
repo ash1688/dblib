@@ -10,6 +10,7 @@ ob_start(); ?>
         <p class="alert error"><?= View::e($error) ?></p>
     <?php endif; ?>
     <form method="post" action="<?= View::e($basePath) ?>/login">
+        <?= \Dblib\Support\Csrf::field() ?>
         <label>Student ID or email
             <input type="text" name="identifier" required autofocus
                    autocomplete="username" autocapitalize="none">

@@ -37,6 +37,7 @@ ob_start(); ?>
 
 <script>
 const basePath = <?= json_encode($basePath) ?>;
+const CSRF = document.querySelector('meta[name="csrf-token"]').content;
 const form = document.getElementById('sql-form');
 const output = document.getElementById('output');
 const ranSql = document.getElementById('ran-sql');
@@ -49,7 +50,7 @@ form.addEventListener('submit', async (e) => {
     const sql = document.getElementById('sql').value;
     const res = await fetch(basePath + '/console/run', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
         body: new URLSearchParams({ sql }),
     });
     const data = await res.json();
@@ -82,7 +83,7 @@ exportBtn.addEventListener('click', async () => {
     if (lastResultSql === null) return;
     const res = await fetch(basePath + '/export/csv', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
         body: new URLSearchParams({ sql: lastResultSql }),
     });
     if (!(res.headers.get('Content-Type') || '').includes('text/csv')) {
@@ -132,7 +133,7 @@ async function loadHistory() {
 }
 
 document.getElementById('history-clear').addEventListener('click', async () => {
-    await fetch(basePath + '/history/clear', { method: 'POST' });
+    await fetch(basePath + '/history/clear', { method: 'POST', headers: { 'X-CSRF-Token': CSRF } });
     loadHistory();
 });
 

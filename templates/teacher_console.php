@@ -31,6 +31,7 @@ ob_start(); ?>
 <script>
 const basePath = <?= json_encode($basePath) ?>;
 const userId = <?= (int) $student['id'] ?>;
+const CSRF = document.querySelector('meta[name="csrf-token"]').content;
 const form = document.getElementById('sql-form');
 const output = document.getElementById('output');
 const ranSql = document.getElementById('ran-sql');
@@ -41,7 +42,7 @@ form.addEventListener('submit', async (e) => {
     const sql = document.getElementById('sql').value;
     const res = await fetch(basePath + '/teacher/student/console/run', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
         body: new URLSearchParams({ user_id: userId, sql }),
     });
     const data = await res.json();

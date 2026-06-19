@@ -93,6 +93,9 @@ assets/              CSS
   string-masked view so they can't be smuggled past).
 - Per-student MySQL passwords are encrypted at rest; the key lives outside the
   web root and the database.
+- **CSRF**: every state-changing POST is rejected unless it carries the
+  per-session token — in a hidden `_token` field (HTML forms) or an
+  `X-CSRF-Token` header (AJAX), verified centrally in the front controller.
 
 ## Teacher workspace
 
@@ -201,7 +204,6 @@ by the `.htaccess` deny rule; the filename comes from `Content-Disposition`.)
 ## Not yet built (next steps)
 
 - Docker packaging (deferred — dev is on XAMPP).
-- Optional hardening not in the original spec: CSRF tokens on POST forms.
 
 Note: ALTER, indexes, and foreign keys are intentionally SQL-console-only (the
 design keeps them out of the GUI), so no builders are planned for them.

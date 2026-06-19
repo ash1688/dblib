@@ -10,6 +10,7 @@
     // Non-empty when a teacher is acting on a student's sandbox; threaded into
     // every request so the server resolves (and authorises) the right sandbox.
     const TARGET = wb.dataset.targetUser || '';
+    const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
 
     const elTables = document.getElementById('wb-tables');
     const elView = document.getElementById('wb-view');
@@ -26,7 +27,7 @@
         return path + (path.includes('?') ? '&' : '?') + 'user_id=' + encodeURIComponent(TARGET);
     }
     async function api(method, path, body) {
-        const opt = { method, headers: {} };
+        const opt = { method, headers: { 'X-CSRF-Token': CSRF } };
         if (body !== undefined) {
             opt.headers['Content-Type'] = 'application/json';
             opt.body = JSON.stringify(body);
@@ -280,7 +281,7 @@
         if (TARGET) params.user_id = TARGET;
         const res = await fetch(BASE + '/export/csv', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
             body: new URLSearchParams(params),
         });
         if (!(res.headers.get('Content-Type') || '').includes('text/csv')) {

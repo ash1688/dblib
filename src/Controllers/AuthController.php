@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Dblib\Controllers;
 
 use Dblib\Auth\Auth;
+use Dblib\Auth\LoginThrottle;
 use Dblib\Http\Request;
 use Dblib\Http\Response;
 use Dblib\Support\View;
@@ -21,19 +22,27 @@ final class AuthController
 
     public function login(Request $request): Response
     {
-        $auth = new Auth();
-        $user = $auth->attempt(
-            (string) $request->input('identifier', ''),
-            (string) $request->input('password', ''),
-        );
+        $identifier = (string) $request->input('identifier', '');
+        $throttle = new LoginThrottle();
 
-        if ($user === null) {
+        if ($throttle->isLockedOut($identifier)) {
             return Response::html(View::render('login', [
                 'basePath' => $request->basePath(),
-                'error'    => 'Invalid email or password.',
+                'error'    => 'Too many failed attempts. Please wait a few minutes and try again.',
+            ]), 429);
+        }
+
+        $user = (new Auth())->attempt($identifier, (string) $request->input('password', ''));
+
+        if ($user === null) {
+            $throttle->recordFailure($identifier);
+            return Response::html(View::render('login', [
+                'basePath' => $request->basePath(),
+                'error'    => 'Invalid login or password.',
             ]), 401);
         }
 
+        $throttle->clear($identifier);
         return Response::redirect($request->basePath() . '/');
     }
 

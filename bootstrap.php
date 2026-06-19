@@ -31,6 +31,21 @@ if (!is_file($configFile)) {
 }
 \Dblib\Support\Config::load(require $configFile);
 
-// --- Errors: in dev, show; everywhere, log -----------------------------------
+// --- Errors: in dev, show; in prod, log + a generic page (no stack traces) ----
+$dblibDebug = (bool) \Dblib\Support\Config::get('app.debug', true);
 error_reporting(E_ALL);
-ini_set('display_errors', \Dblib\Support\Config::get('app.debug', true) ? '1' : '0');
+ini_set('log_errors', '1');
+ini_set('display_errors', $dblibDebug ? '1' : '0');
+
+if (!$dblibDebug) {
+    // Prod: never leak stack traces / schema details to the browser.
+    set_exception_handler(static function (\Throwable $e): void {
+        error_log('dblib uncaught: ' . $e);
+        if (!headers_sent()) {
+            http_response_code(500);
+            header('Content-Type: text/html; charset=utf-8');
+        }
+        echo '<h1>Something went wrong</h1>'
+            . '<p>Please try again. If it keeps happening, let your teacher know.</p>';
+    });
+}

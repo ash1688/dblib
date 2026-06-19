@@ -19,7 +19,15 @@ use Dblib\Controllers\ExportController;
 use Dblib\Controllers\HistoryController;
 use Dblib\Controllers\TeacherController;
 
-session_start();
+// Harden the session cookie: not readable by JS, not sent cross-site (a second
+// layer behind the CSRF tokens), and HTTPS-only when the connection is secure.
+session_start([
+    'cookie_httponly' => true,
+    'cookie_samesite' => 'Lax',
+    'cookie_secure'   => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                         || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https'),
+    'use_strict_mode' => true,
+]);
 
 $request = Request::capture();
 

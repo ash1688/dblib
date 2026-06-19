@@ -6,6 +6,8 @@
 
 return [
     'app' => [
+        // Set to false for any shared/production deployment: hides stack traces
+        // (which can leak schema/paths) and shows a generic error page instead.
         'debug' => true,
 
         // Identifier prefixes for provisioned student sandboxes.

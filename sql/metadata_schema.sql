@@ -67,3 +67,13 @@ CREATE TABLE IF NOT EXISTS seeds (
     KEY idx_seeds_class (class_id),
     CONSTRAINT fk_seeds_class FOREIGN KEY (class_id) REFERENCES classes (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Failed-login records for rate limiting. One row per failed attempt, keyed by
+-- the login identifier; rows age out of the window and are pruned on check.
+CREATE TABLE IF NOT EXISTS login_attempts (
+    id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    identifier   VARCHAR(190) NOT NULL,
+    attempted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_login_attempts (identifier, attempted_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

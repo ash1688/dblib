@@ -96,6 +96,14 @@ assets/              CSS
 - **CSRF**: every state-changing POST is rejected unless it carries the
   per-session token — in a hidden `_token` field (HTML forms) or an
   `X-CSRF-Token` header (AJAX), verified centrally in the front controller.
+- **Session cookie** is `HttpOnly` + `SameSite=Lax` (a second layer behind CSRF),
+  and `Secure` when the request is HTTPS (direct or via `X-Forwarded-Proto`),
+  with `use_strict_mode` against session fixation.
+- **Login rate limiting**: 5 failed attempts for one login id within 15 minutes
+  locks that id out (HTTP 429) until they age out; a successful login clears it.
+- **Errors**: with `app.debug = false`, stack traces are never shown — uncaught
+  errors are logged and the user sees a generic page. Set `debug = false` in
+  `config/config.php` for any shared deployment.
 
 ## Teacher workspace
 

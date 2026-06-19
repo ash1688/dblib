@@ -342,15 +342,21 @@
         document.getElementById('wb-ct-rows').appendChild(tr);
         tr.querySelector('.ct-remove').onclick = () => tr.remove();
 
-        // The Size field is enabled only for types that take one (VARCHAR/CHAR/DECIMAL).
+        // Size applies to VARCHAR/CHAR/DECIMAL. The field stays editable; picking
+        // such a type pre-fills a sensible default and a hint, and switching to a
+        // type that takes no size just clears it (the server ignores size there).
         const sel = tr.querySelector('.ct-type');
         const size = tr.querySelector('.ct-size');
         const syncSize = () => {
             const opt = sel.options[sel.selectedIndex];
             const param = opt.dataset.param;
-            size.disabled = !param;
-            size.placeholder = param ? opt.dataset.ph : '—';
-            size.value = param ? opt.dataset.default : '';
+            if (param) {
+                size.placeholder = opt.dataset.ph;
+                if (!size.value) size.value = opt.dataset.default;
+            } else {
+                size.placeholder = 'no size';
+                size.value = '';
+            }
         };
         sel.onchange = syncSize;
         syncSize();

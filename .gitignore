@@ -1,0 +1,12 @@
+# Local config names the provisioning account — keep it out of version control.
+/config/config.php
+
+# Secrets never live in the repo (or the web root).
+*.key
+
+# Editor / OS noise
+.idea/
+.vscode/
+*.log
+Thumbs.db
+.DS_Store

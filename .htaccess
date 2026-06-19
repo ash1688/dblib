@@ -1,0 +1,21 @@
+# Front-controller routing for XAMPP/Apache.
+# Everything that isn't a real file/dir is handled by index.php.
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /dblib/
+
+    # Serve existing files (assets) directly.
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    RewriteRule ^ index.php [L]
+</IfModule>
+
+# Defense in depth: never serve config, source, or secrets even if misplaced.
+<FilesMatch "\.(sql|md)$">
+    Require all denied
+</FilesMatch>
+
+RedirectMatch 403 ^/dblib/(config|src|cli|tests|sql)/.*$

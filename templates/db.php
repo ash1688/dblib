@@ -4,7 +4,7 @@
 /** @var list<string> $types */
 /** @var string $targetUser */
 /** @var string|null $banner */
-/** @var string $consoleUrl */
+/** @var string|null $consoleUrl */
 /** @var string|null $backUrl */
 use Dblib\Support\View;
 $title = 'My database · dblib';
@@ -24,9 +24,11 @@ ob_start(); ?>
             <button type="button" class="link" id="wb-new-table">＋ New</button>
         </div>
         <ul class="wb-tables" id="wb-tables"><li class="muted">Loading…</li></ul>
-        <p class="wb-side-foot">
-            <a href="<?= View::e($consoleUrl) ?>">SQL console →</a>
-        </p>
+        <?php if ($consoleUrl !== null): ?>
+            <p class="wb-side-foot">
+                <a href="<?= View::e($consoleUrl) ?>">SQL console →</a>
+            </p>
+        <?php endif; ?>
     </aside>
 
     <main class="wb-main">

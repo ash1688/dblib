@@ -28,13 +28,15 @@ final class SandboxConnector
     }
 
     /**
-     * Resolve which student's sandbox a request targets:
+     * Resolve which sandbox a request targets:
      *   - a logged-in student → their own sandbox;
+     *   - a logged-in teacher with ?user_id=<their own id> → their personal demo
+     *     sandbox (for showing the class how the workbench works);
      *   - a logged-in teacher with ?user_id=X → that student's sandbox, but only
      *     if the student sits in a class the teacher owns.
      * Returns null if nobody is authorised for the target.
      *
-     * @return array<string,mixed>|null the target student's user row
+     * @return array<string,mixed>|null the target user row
      */
     public function resolve(Request $request): ?array
     {
@@ -47,6 +49,11 @@ final class SandboxConnector
         }
         if ($user['role'] === Auth::ROLE_TEACHER) {
             $targetId = (int) $request->input('user_id', '0');
+            // The teacher's own demo sandbox — a row in student_sandboxes keyed
+            // to the teacher themselves (provisioned via /teacher/demo).
+            if ($targetId === (int) $user['id']) {
+                return $user;
+            }
             if ($targetId <= 0) {
                 return null;
             }

@@ -1,0 +1,56 @@
+# dblib — full local stack: Apache/PHP app + MariaDB.
+#
+#   docker compose up --build
+#   → http://localhost:8088/   (teacher login from DBLIB_TEACHER_* below)
+#
+# Copy .env.example to .env to override ports / credentials / the first teacher.
+
+services:
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DBLIB_DB_ROOT_PASS:-rootpass}
+      # Passed through to docker/initdb so the provisioning account it creates
+      # matches what the app connects with.
+      DBLIB_DB_ADMIN_USER: ${DBLIB_DB_ADMIN_USER:-dblib_admin}
+      DBLIB_DB_ADMIN_PASS: ${DBLIB_DB_ADMIN_PASS:-dblib_admin_pw}
+    volumes:
+      - db-data:/var/lib/mysql
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DBLIB_DB_HOST: db
+      DBLIB_DB_PORT: 3306
+      DBLIB_DB_NAME: dblib_meta
+      DBLIB_DB_ADMIN_USER: ${DBLIB_DB_ADMIN_USER:-dblib_admin}
+      DBLIB_DB_ADMIN_PASS: ${DBLIB_DB_ADMIN_PASS:-dblib_admin_pw}
+      DBLIB_DEBUG: ${DBLIB_DEBUG:-false}
+      DBLIB_STUDENT_USER_HOST: '%'
+      DBLIB_KEY_FILE: /var/dblib-secrets/credential.key
+      # First-run teacher login (created idempotently by the entrypoint).
+      DBLIB_TEACHER_EMAIL: ${DBLIB_TEACHER_EMAIL:-teacher@dblib.local}
+      DBLIB_TEACHER_PASSWORD: ${DBLIB_TEACHER_PASSWORD:-changeme}
+      DBLIB_TEACHER_NAME: ${DBLIB_TEACHER_NAME:-Teacher}
+    ports:
+      - "${DBLIB_HTTP_PORT:-8088}:80"
+    volumes:
+      # The credential-encryption key persists here, outside the web root.
+      - secrets:/var/dblib-secrets
+
+volumes:
+  db-data:
+  secrets:

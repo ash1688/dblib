@@ -5,10 +5,49 @@ A web-based, cut-down phpMyAdmin clone for a college database unit. See
 
 This is the **scaffold**: structure plus the safety-critical pieces wired up
 (single-statement + DROP DATABASE guards, AES-256-GCM credential encryption,
-scoped-user provisioning). Teacher/student dashboards are placeholders. No Docker
-yet — runs directly under XAMPP.
+scoped-user provisioning). Teacher/student dashboards are placeholders. Runs
+under XAMPP, or as a self-contained Docker stack (see
+[Run with Docker](#run-with-docker)).
 
-## Requirements
+## Run with Docker
+
+A `docker compose` stack bundles Apache/PHP + MariaDB — no XAMPP needed. The app
+is served at the **web root** (not `/dblib/`), and all setup the README does by
+hand (key generation, metadata migration, first teacher) runs automatically on
+first boot.
+
+```
+cp .env.example .env      # optional — edit ports / passwords / first teacher
+docker compose up --build
+```
+
+Then open **http://localhost:8088/** and sign in as the teacher from `.env`
+(default `teacher@dblib.local` / `changeme`). Provision students with the same
+CLIs, run inside the app container:
+
+```
+docker compose exec app php cli/provision_student.php \
+  --student-id=S1234567 --password=changeme --name="Alice Smith"
+```
+
+How it maps to the manual XAMPP setup:
+
+- **Config** is env-driven ([docker/config.docker.php](docker/config.docker.php)),
+  fed by `docker-compose.yml` / `.env` — no `config/config.php` to edit.
+- **Provisioning account** — root stays localhost-only in the DB container;
+  [docker/initdb](docker/initdb) creates a network-reachable `dblib_admin` the
+  app connects with.
+- **Scoped student users** are created for host `%` (the compose network is the
+  boundary), since the app reaches MariaDB from a separate container.
+- **Encryption key** lives on the `secrets` named volume at
+  `/var/dblib-secrets/credential.key` — outside the web root, persisted across
+  restarts. The DB lives on the `db-data` volume.
+- **Routing** uses [docker/vhost.conf](docker/vhost.conf) instead of `.htaccess`
+  (same rewrite + the same config/src/cli/sql/secret denials).
+
+To tear it all down (including the data + key volumes): `docker compose down -v`.
+
+## Requirements (XAMPP)
 
 - XAMPP with PHP 8.2+ and MariaDB
 - PHP `openssl` and `pdo_mysql` extensions (both ship enabled with XAMPP)
@@ -109,6 +148,11 @@ assets/              CSS
 
 Sign in as a teacher to reach `/teacher`:
 
+- **Demo database** — your own sandbox, provisioned on first use exactly like a
+  student's (scoped MySQL user and all), opened in the *same* GUI workbench
+  students get. Use it to show the class how to create tables, add rows, and read
+  the generated SQL — without touching any student's data. It runs through the
+  same guarded `ExecutionPipeline`, so `DROP DATABASE` stays blocked here too.
 - **Classes** — create classes; each is owned by you and scoped to you.
 - **Manual enrolment** — add a student by ID (name/email optional). A blank
   password field generates a temporary one, shown once.
@@ -211,12 +255,7 @@ by the `.htaccess` deny rule; the filename comes from `Content-Disposition`.)
 
 ## Not yet built (next steps)
 
-- Docker packaging (deferred — dev is on XAMPP).
-
 Note: ALTER, indexes, and foreign keys are intentionally SQL-console-only (the
 design keeps them out of the GUI), so no builders are planned for them.
+
 - ALTER / index / foreign-key GUI helpers (SQL-only for now, by design).
-- Docker packaging (deferred — dev is on XAMPP).
-- Teacher admin access into a student's sandbox.
-- ALTER / index / foreign-key helpers (SQL-only for now, by design).
-- Docker packaging (deferred — dev is on XAMPP).

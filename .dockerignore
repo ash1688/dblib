@@ -1,0 +1,13 @@
+.git
+.gitignore
+.gitattributes
+.idea/
+.vscode/
+*.log
+
+# Never bake host-local secrets/config into the image.
+config/config.php
+*.key
+
+# Compose env overrides stay on the host.
+.env

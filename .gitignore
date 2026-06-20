@@ -4,6 +4,9 @@
 # Secrets never live in the repo (or the web root).
 *.key
 
+# Local docker-compose overrides (ports, passwords, first teacher).
+/.env
+
 # Editor / OS noise
 .idea/
 .vscode/

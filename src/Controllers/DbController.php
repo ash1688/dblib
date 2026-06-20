@@ -43,20 +43,37 @@ final class DbController
             return Response::redirect($request->basePath() . $dest);
         }
 
-        $self = $this->sandbox->student() !== null;   // is the actor the student themselves?
-        $label = $student['display_name'] ?: $student['student_id'];
+        // Three contexts share this one workbench:
+        //   - a student on their own sandbox,
+        //   - a teacher on their own demo sandbox (actor == target),
+        //   - a teacher on a student's sandbox (the "fix it for them" case).
+        $actor       = (new Auth())->user();
+        $ownSandbox  = $actor !== null && (int) $actor['id'] === (int) $student['id'];
+        $teacherDemo = $ownSandbox && ($actor['role'] ?? '') === Auth::ROLE_TEACHER;
+        $studentSelf = $ownSandbox && !$teacherDemo;
+        $label = $student['display_name'] ?: ($student['student_id'] ?? '');
 
         return Response::html(View::render('db', [
             'basePath'   => $request->basePath(),
             'user'       => $student,
             'types'      => SqlBuilder::catalog(),
-            // Teacher-on-student context: thread the target id and show a banner.
-            'targetUser' => $self ? '' : (string) $student['id'],
-            'banner'     => $self ? null : "You are editing {$label}’s database (" . $student['student_id'] . '). Changes are live.',
-            'consoleUrl' => $self
-                ? $request->basePath() . '/console'
-                : $request->basePath() . '/teacher/student/console?user_id=' . (int) $student['id'],
-            'backUrl'    => $self ? null : $request->basePath() . '/teacher',
+            // A student's own sandbox needs no target id (resolved from session);
+            // both teacher contexts thread the target so the server re-authorises.
+            'targetUser' => $studentSelf ? '' : (string) $student['id'],
+            'banner'     => match (true) {
+                $teacherDemo => 'This is your demo database — a sandbox for showing the class. Changes are live.',
+                $studentSelf => null,
+                default      => "You are editing {$label}’s database (" . ($student['student_id'] ?? '') . '). Changes are live.',
+            },
+            // The SQL console is student-only and teacher-on-student; the demo has
+            // no console (the workbench already shows the generated SQL as you go).
+            'consoleUrl' => match (true) {
+                $teacherDemo => null,
+                $studentSelf => $request->basePath() . '/console',
+                default      => $request->basePath() . '/teacher/student/console?user_id=' . (int) $student['id'],
+            },
+            // Teachers (demo or on-student) get a "back to dashboard" link.
+            'backUrl'    => $studentSelf ? null : $request->basePath() . '/teacher',
         ]));
     }
 

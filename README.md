@@ -109,6 +109,11 @@ assets/              CSS
 
 Sign in as a teacher to reach `/teacher`:
 
+- **Demo database** — your own sandbox, provisioned on first use exactly like a
+  student's (scoped MySQL user and all), opened in the *same* GUI workbench
+  students get. Use it to show the class how to create tables, add rows, and read
+  the generated SQL — without touching any student's data. It runs through the
+  same guarded `ExecutionPipeline`, so `DROP DATABASE` stays blocked here too.
 - **Classes** — create classes; each is owned by you and scoped to you.
 - **Manual enrolment** — add a student by ID (name/email optional). A blank
   password field generates a temporary one, shown once.

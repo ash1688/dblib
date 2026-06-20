@@ -269,6 +269,37 @@ final class TeacherController
     }
 
     /**
+     * The teacher's personal demo sandbox: a database of their own (provisioned
+     * exactly like a student's, scoped MySQL user and all) so they can show the
+     * class how the workbench works without touching a real student's data.
+     *
+     * Provisions on first use, then hands off to the same GUI workbench students
+     * use — the teacher reaches it by targeting their own user id.
+     */
+    public function demo(Request $request): Response
+    {
+        $teacher = $this->teacher();
+        if ($teacher === null) {
+            return Response::redirect($request->basePath() . '/login');
+        }
+
+        $teacherId = (int) $teacher['id'];
+
+        // Provision once. Re-provisioning would rotate the stored password out of
+        // sync with the (unchanged) MySQL user, so only do it when absent.
+        if (!$this->hasSandbox($teacherId)) {
+            try {
+                (new Provisioner($this->cipher()))->provisionForUser($teacherId, 'demo');
+            } catch (\PDOException $e) {
+                $this->flash('error', 'Could not set up your demo database. Try again.');
+                return Response::redirect($request->basePath() . '/teacher');
+            }
+        }
+
+        return Response::redirect($request->basePath() . '/db?user_id=' . $teacherId);
+    }
+
+    /**
      * Open a SQL console onto one of the teacher's students' sandboxes — the
      * "fix it when the student can't" capability. Runs as the student's own
      * scoped user, so it's full admin over that one database and nothing else.
@@ -327,6 +358,16 @@ final class TeacherController
     }
 
     // ---- helpers ------------------------------------------------------------
+
+    /** Has a sandbox already been provisioned for this user id? */
+    private function hasSandbox(int $userId): bool
+    {
+        $stmt = MetadataConnection::get()->prepare(
+            'SELECT 1 FROM student_sandboxes WHERE user_id = ? LIMIT 1'
+        );
+        $stmt->execute([$userId]);
+        return $stmt->fetchColumn() !== false;
+    }
 
     /**
      * Load a student row only if they sit in a class this teacher owns.

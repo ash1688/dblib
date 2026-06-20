@@ -67,6 +67,7 @@ $router->get('/history/export',    [HistoryController::class, 'exportSql']);
 $router->post('/history/clear',    [HistoryController::class, 'clear']);
 
 $router->get('/teacher',                [TeacherController::class, 'dashboard']);
+$router->get('/teacher/demo',           [TeacherController::class, 'demo']);
 $router->post('/teacher/class/create',  [TeacherController::class, 'createClass']);
 $router->get('/teacher/class',          [TeacherController::class, 'showClass']);
 $router->post('/teacher/student/create',[TeacherController::class, 'createStudent']);

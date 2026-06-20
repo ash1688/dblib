@@ -33,6 +33,13 @@ ob_start(); ?>
     <?php endif; ?>
 </section>
 
+<section class="card">
+    <h2>Demo database</h2>
+    <p class="muted">Your own sandbox to show the class how the workbench works —
+        create tables, add rows, run SQL — without touching any student's data.</p>
+    <a class="button primary" href="<?= View::e($basePath) ?>/teacher/demo">Open demo database</a>
+</section>
+
 <section class="card narrow-form">
     <h2>New class</h2>
     <form method="post" action="<?= View::e($basePath) ?>/teacher/class/create">

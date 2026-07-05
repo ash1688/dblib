@@ -24,6 +24,10 @@ ob_start(); ?>
             <button type="button" class="link" id="wb-new-table">＋ New</button>
         </div>
         <ul class="wb-tables" id="wb-tables"><li class="muted">Loading…</li></ul>
+        <p class="wb-side-foot">
+            <button type="button" class="link" id="wb-wizard">Query wizard →</button><br>
+            <button type="button" class="link" id="wb-export-all">Export all (.sql)</button>
+        </p>
         <?php if ($consoleUrl !== null): ?>
             <p class="wb-side-foot">
                 <a href="<?= View::e($consoleUrl) ?>">SQL console →</a>
@@ -47,6 +51,6 @@ ob_start(); ?>
     </main>
 </div>
 
-<script src="<?= View::e($basePath) ?>/assets/js/workbench.js" defer></script>
+<script src="<?= View::asset($basePath, 'js/workbench.js') ?>" defer></script>
 <?php $content = ob_get_clean();
 require __DIR__ . '/layout.php';

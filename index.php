@@ -54,13 +54,18 @@ $router->post('/console/run',[ConsoleController::class, 'run']);
 $router->get('/db',                [DbController::class, 'workbench']);
 $router->get('/db/tables',         [DbController::class, 'tables']);
 $router->get('/db/table',          [DbController::class, 'table']);
+$router->get('/db/columns',        [DbController::class, 'columns']);
 $router->post('/db/create-table',  [DbController::class, 'createTable']);
 $router->post('/db/drop-table',    [DbController::class, 'dropTable']);
 $router->post('/db/insert',        [DbController::class, 'insert']);
 $router->post('/db/update',        [DbController::class, 'update']);
 $router->post('/db/delete',        [DbController::class, 'delete']);
+$router->post('/db/add-foreign-key',  [DbController::class, 'addForeignKey']);
+$router->post('/db/drop-foreign-key', [DbController::class, 'dropForeignKey']);
+$router->post('/db/run-sql',          [DbController::class, 'runSql']);
 
 $router->post('/export/csv',       [ExportController::class, 'csv']);
+$router->post('/export/sql',       [ExportController::class, 'sqlDump']);
 
 $router->get('/history',           [HistoryController::class, 'list']);
 $router->get('/history/export',    [HistoryController::class, 'exportSql']);

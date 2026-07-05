@@ -83,7 +83,7 @@
     }
 
     // ---- browse a table -----------------------------------------------------
-    async function openTable(name, page) {
+    async function openTable(name, page, tab) {
         state.table = name;
         state.page = page || 1;
         const data = await getJSON(`/db/table?name=${encodeURIComponent(name)}&page=${state.page}&per_page=${state.perPage}`);
@@ -91,12 +91,13 @@
 
         document.querySelectorAll('.wb-table-btn').forEach((b) =>
             b.classList.toggle('active', b.dataset.table === name));
-        renderTableView(data);
+        renderTableView(data, tab);
     }
 
     // Shared toolbar + Browse/Structure tabs; tab bodies render into #wb-content.
-    function renderTableView(data) {
+    function renderTableView(data, tab) {
         const { table } = data;
+        const onStructure = tab === 'structure';
         elView.innerHTML = `
             <div class="wb-toolbar">
                 <h2>${esc(table)}</h2>
@@ -108,8 +109,8 @@
                 </div>
             </div>
             <div class="wb-tabs">
-                <button type="button" class="wb-tab active" data-tab="browse">Browse</button>
-                <button type="button" class="wb-tab" data-tab="structure">Structure</button>
+                <button type="button" class="wb-tab${onStructure ? '' : ' active'}" data-tab="browse">Browse</button>
+                <button type="button" class="wb-tab${onStructure ? ' active' : ''}" data-tab="structure">Structure</button>
             </div>
             <div id="wb-content"></div>`;
 
@@ -123,12 +124,15 @@
                 b.dataset.tab === 'structure' ? renderStructure(data) : renderBrowse(data);
             });
 
-        renderBrowse(data);
+        onStructure ? renderStructure(data) : renderBrowse(data);
     }
 
     function renderBrowse(data) {
         const { table, grid, page, pages } = data;
-        const head = grid.columns.map((c) => `<th>${esc(c)}</th>`).join('') + '<th></th>';
+        const pkSet = new Set(data.primaryKey || []);
+        const fkSet = new Set((data.foreignKeys || []).map((f) => f.column));
+        const headClass = (c) => pkSet.has(c) ? ' class="col-pk"' : (fkSet.has(c) ? ' class="col-fk"' : '');
+        const head = grid.columns.map((c) => `<th${headClass(c)}>${esc(c)}</th>`).join('') + '<th></th>';
         const rows = grid.rows.map((r, i) => {
             const cells = grid.columns.map((c) => `<td>${cell(r[c])}</td>`).join('');
             return `<tr>${cells}<td class="wb-row-actions">
@@ -170,22 +174,166 @@
 
     function renderStructure(data) {
         const { table, columns, primaryKey } = data;
+        const fks = data.foreignKeys || [];
+        const fkByColumn = {};
+        fks.forEach((fk) => (fkByColumn[fk.column] = fkByColumn[fk.column] || []).push(fk));
+
+        // Existing FK(s) on the column, or an "Add" link that opens the modal.
+        const fkCell = (c) => {
+            const own = fkByColumn[c.name] || [];
+            if (!own.length) return `<button type="button" class="link" data-addfk="${esc(c.name)}">＋ Add</button>`;
+            return own.map((fk) => `<span class="wb-fk">→ ${esc(fk.refTable)}.${esc(fk.refColumn)}
+                <span class="muted">ON DELETE ${esc(fk.onDelete)} · ON UPDATE ${esc(fk.onUpdate)}</span>
+                <button type="button" class="link danger" data-dropfk="${esc(fk.constraint)}" title="Remove foreign key">✕</button></span>`).join('<br>');
+        };
+
+        // PK blue, FK orange; a column that is both (junction tables) shows PK
+        // blue — its FK-ness is already visible in the orange Foreign key cell.
+        const nameClass = (c) => c.key === 'PRI' ? 'col-pk' : (fkByColumn[c.name] ? 'col-fk' : '');
         const rows = columns.map((c) => `<tr>
-            <td>${esc(c.name)}</td>
+            <td class="${nameClass(c)}">${esc(c.name)}</td>
             <td>${esc(c.type)}</td>
             <td>${c.nullable ? 'YES' : 'NO'}</td>
             <td>${esc(c.key) || '—'}</td>
             <td>${c.default === null ? '<span class="null">NULL</span>' : esc(c.default)}</td>
-            <td>${esc(c.extra) || '—'}</td></tr>`).join('');
+            <td>${esc(c.extra) || '—'}</td>
+            <td>${fkCell(c)}</td></tr>`).join('');
 
         document.getElementById('wb-content').innerHTML = `
             <div class="grid-wrap"><table class="grid">
-                <thead><tr><th>Column</th><th>Type</th><th>Null</th><th>Key</th><th>Default</th><th>Extra</th></tr></thead>
+                <thead><tr><th>Column</th><th>Type</th><th>Null</th><th>Key</th><th>Default</th><th>Extra</th><th>Foreign key</th></tr></thead>
                 <tbody>${rows}</tbody></table></div>
-            <p class="muted">${primaryKey.length ? 'Primary key: ' + primaryKey.map(esc).join(', ') : 'No primary key.'}</p>`;
+            <p class="muted">${primaryKey.length ? 'Primary key: ' + primaryKey.map(esc).join(', ') : 'No primary key.'}
+                <span class="wb-key-legend">· <span class="col-pk">●</span> primary key · <span class="col-fk">●</span> foreign key</span></p>`;
+
+        elView.querySelectorAll('[data-addfk]').forEach((b) =>
+            b.onclick = () => showFkModal(data, b.dataset.addfk));
+        elView.querySelectorAll('[data-dropfk]').forEach((b) =>
+            b.onclick = () => removeForeignKey(data, fks.find((f) => f.constraint === b.dataset.dropfk)));
 
         // The runnable SQL that yields this view — shown as evidence/teaching aid.
         showEvidence('SHOW COLUMNS FROM `' + table + '`', '', `${columns.length} column(s)`);
+    }
+
+    // ---- foreign keys ---------------------------------------------------------
+    // Explainers keyed by referential action; ON DELETE and ON UPDATE get their
+    // own wording because "the row is deleted" and "the value changes" read
+    // differently to a student.
+    const FK_DELETE_HELP = {
+        'RESTRICT':  'Blocks the delete — a row in the referenced table cannot be deleted while rows here still point at it. The safe default.',
+        'CASCADE':   'The delete ripples down — deleting a row in the referenced table also deletes every row here that points at it.',
+        'SET NULL':  'Rows here are kept but unlinked — this column becomes NULL when the referenced row is deleted. The column must allow NULL.',
+        'NO ACTION': 'In MySQL/MariaDB this behaves the same as RESTRICT — the delete is blocked while rows here still point at it.',
+    };
+    const FK_UPDATE_HELP = {
+        'RESTRICT':  'Blocks changing the referenced value while rows here point at it. The safe default.',
+        'CASCADE':   'If the referenced value changes, this column updates automatically to match.',
+        'SET NULL':  'If the referenced value changes, this column becomes NULL. The column must allow NULL.',
+        'NO ACTION': 'In MySQL/MariaDB this behaves the same as RESTRICT.',
+    };
+
+    function showFkModal(ctx, columnName) {
+        const col = ctx.columns.find((c) => c.name === columnName);
+        const actionOpts = Object.keys(FK_DELETE_HELP).map((a) =>
+            `<option value="${a}" ${a === 'RESTRICT' ? 'selected' : ''}>${a}</option>`).join('');
+
+        const overlay = document.createElement('div');
+        overlay.className = 'wb-modal-overlay';
+        overlay.innerHTML = `
+            <div class="wb-modal" role="dialog" aria-modal="true" aria-label="Add foreign key">
+                <h2>Add foreign key</h2>
+                <p class="muted"><code>${esc(ctx.table)}.${esc(col.name)}</code> <span class="muted">(${esc(col.type)})</span> will only accept values that exist in the column you pick below.</p>
+                <div id="wb-fk-error"></div>
+                <label>References table
+                    <select id="wb-fk-table"><option value="">Loading…</option></select>
+                </label>
+                <label>References column
+                    <select id="wb-fk-column" disabled><option value="">Pick a table first</option></select>
+                </label>
+                <label>ON DELETE <span class="muted">— when the referenced row is deleted</span>
+                    <select id="wb-fk-del">${actionOpts}</select>
+                </label>
+                <p class="wb-fk-help" id="wb-fk-del-help"></p>
+                <label>ON UPDATE <span class="muted">— when the referenced value changes</span>
+                    <select id="wb-fk-upd">${actionOpts}</select>
+                </label>
+                <p class="wb-fk-help" id="wb-fk-upd-help"></p>
+                <div class="wb-form-actions">
+                    <button type="button" class="primary" id="wb-fk-save">Add foreign key</button>
+                    <button type="button" id="wb-fk-cancel">Cancel</button>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+
+        const $ = (id) => overlay.querySelector('#' + id);
+        const onKey = (e) => { if (e.key === 'Escape') close(); };
+        const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+        document.addEventListener('keydown', onKey);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+        $('wb-fk-cancel').onclick = close;
+
+        const showError = (msg) => {
+            $('wb-fk-error').innerHTML = msg ? `<p class="alert error">${esc(msg)}</p>` : '';
+        };
+
+        // SET NULL only works on a nullable column — warn at the point of choice.
+        const helpFor = (help, action) => help[action] +
+            (action === 'SET NULL' && !col.nullable
+                ? ` ⚠ ${col.name} is NOT NULL, so this will fail — allow NULL on the column first.` : '');
+        const syncHelp = () => {
+            $('wb-fk-del-help').textContent = helpFor(FK_DELETE_HELP, $('wb-fk-del').value);
+            $('wb-fk-upd-help').textContent = helpFor(FK_UPDATE_HELP, $('wb-fk-upd').value);
+        };
+        $('wb-fk-del').onchange = syncHelp;
+        $('wb-fk-upd').onchange = syncHelp;
+        syncHelp();
+
+        getJSON('/db/tables').then((d) => {
+            $('wb-fk-table').innerHTML = '<option value="">— choose a table —</option>' +
+                (d.tables || []).map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+        });
+
+        $('wb-fk-table').onchange = async () => {
+            const t = $('wb-fk-table').value;
+            const colSel = $('wb-fk-column');
+            colSel.disabled = true;
+            if (!t) { colSel.innerHTML = '<option value="">Pick a table first</option>'; return; }
+            colSel.innerHTML = '<option value="">Loading…</option>';
+            const d = await getJSON('/db/columns?name=' + encodeURIComponent(t));
+            if (d.error) { showError(d.error); return; }
+            colSel.innerHTML = (d.columns || []).map((c) =>
+                `<option value="${esc(c.name)}">${esc(c.name)} — ${esc(c.type)}${c.key === 'PRI' ? ' · PK' : ''}</option>`).join('');
+            // Default to the primary key: that's what an FK points at 99% of the time.
+            const pk = (d.columns || []).findIndex((c) => c.key === 'PRI');
+            if (pk >= 0) colSel.selectedIndex = pk;
+            colSel.disabled = false;
+            showError('');
+        };
+
+        $('wb-fk-save').onclick = async () => {
+            const refTable = $('wb-fk-table').value;
+            const refColumn = $('wb-fk-column').value;
+            if (!refTable || !refColumn) { showError('Pick the table and column to reference.'); return; }
+            const data = await postJSON('/db/add-foreign-key', {
+                table: ctx.table,
+                column: col.name,
+                refTable,
+                refColumn,
+                onDelete: $('wb-fk-del').value,
+                onUpdate: $('wb-fk-upd').value,
+            });
+            showEvidence(data.sql, outcome(data), '');
+            if (data.ok) { close(); openTable(ctx.table, state.page, 'structure'); }
+            else showError(data.error || 'Adding the foreign key failed.');
+        };
+    }
+
+    async function removeForeignKey(ctx, fk) {
+        if (!fk) return;
+        if (!confirm(`Remove foreign key "${fk.constraint}" (${ctx.table}.${fk.column} → ${fk.refTable}.${fk.refColumn})?`)) return;
+        const data = await postJSON('/db/drop-foreign-key', { table: ctx.table, constraint: fk.constraint });
+        showEvidence(data.sql, outcome(data), '');
+        if (data.ok) openTable(ctx.table, state.page, 'structure');
     }
 
     // ---- insert / edit form -------------------------------------------------
@@ -275,26 +423,33 @@
         if (data.ok) openTable(ctx.table, state.page);
     }
 
-    // Export the whole table as CSV (server runs SELECT * with no LIMIT).
-    async function exportCsv(table) {
-        const params = { table };
+    // POST an export endpoint and save the response as a file download.
+    // Errors come back as JSON; anything else is the file itself.
+    async function downloadExport(path, params, filename) {
         if (TARGET) params.user_id = TARGET;
-        const res = await fetch(BASE + '/export/csv', {
+        const res = await fetch(BASE + path, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF },
             body: new URLSearchParams(params),
         });
-        if (!(res.headers.get('Content-Type') || '').includes('text/csv')) {
+        if ((res.headers.get('Content-Type') || '').includes('application/json')) {
             const err = await res.json().catch(() => ({ error: 'Export failed.' }));
             alert(err.error || 'Export failed.');
             return;
         }
         const url = URL.createObjectURL(await res.blob());
         const a = document.createElement('a');
-        a.href = url; a.download = `${table}.csv`;
+        a.href = url; a.download = filename;
         document.body.appendChild(a); a.click(); a.remove();
         URL.revokeObjectURL(url);
     }
+
+    // Export the whole table as CSV (server runs SELECT * with no LIMIT).
+    const exportCsv = (table) => downloadExport('/export/csv', { table }, `${table}.csv`);
+
+    // Every table + its data as one runnable .sql backup.
+    const exportAllSql = () =>
+        downloadExport('/export/sql', {}, `database-${new Date().toISOString().slice(0, 10)}.sql`);
 
     async function dropTable(table) {
         if (!confirm(`Drop table "${table}"? This permanently deletes the table and its data.`)) return;
@@ -379,12 +534,243 @@
         if (data.ok) loadTables(table);
     }
 
+    // ---- query wizard ---------------------------------------------------------
+    // Keyword blocks the student combines into a statement. The chips in order
+    // ARE the query, so clause order becomes something you can see and fix by
+    // dragging. Each block kind renders different inputs:
+    //   table     → dropdown of the sandbox's tables
+    //   columns   → free text + an "add column" dropdown that appends to it
+    //   condition → column ▾ + operator ▾ + free-text value
+    //   orderby   → column ▾ + ASC/DESC ▾
+    //   set       → column ▾ = free-text value
+    //   text      → free text only
+    const WIZ_BLOCKS = [
+        { kw: 'SELECT',      kind: 'columns',   ph: '* or column1, column2', hint: 'Which columns to show — * means every column.' },
+        { kw: 'FROM',        kind: 'table',     hint: 'The table to read from.' },
+        { kw: 'WHERE',       kind: 'condition', hint: 'Keep only the rows that match this condition.' },
+        { kw: 'AND',         kind: 'condition', hint: 'A second condition that must ALSO be true.' },
+        { kw: 'OR',          kind: 'condition', hint: 'An alternative condition — either may be true.' },
+        { kw: 'ORDER BY',    kind: 'orderby',   hint: 'Sort the results by a column.' },
+        { kw: 'LIMIT',       kind: 'text',      ph: 'e.g. 10', hint: 'Show at most this many rows.' },
+        { kw: 'UPDATE',      kind: 'table',     hint: 'Change existing rows in this table (needs SET).' },
+        { kw: 'SET',         kind: 'set',       hint: 'What UPDATE should change: column = value.' },
+        { kw: 'DELETE FROM', kind: 'table',     hint: 'Remove rows from this table (add a WHERE!).' },
+    ];
+    const WIZ_OPS = ['=', '!=', '>', '<', '>=', '<=', 'LIKE'];
+    let wiz = [];          // canvas model: [{kw, kind, ph, value, col, op, dir}]
+    let wizTables = [];    // table names for the table dropdowns
+    let wizColumns = [];   // union of columns of every table on the canvas
+    const wizColCache = {}; // table → [column names]
+
+    function showWizard() {
+        state.table = null;
+        wiz = [];
+        document.querySelectorAll('.wb-table-btn').forEach((b) => b.classList.remove('active'));
+
+        const palette = WIZ_BLOCKS.map((b) =>
+            `<button type="button" class="wiz-block" draggable="true" data-kw="${esc(b.kw)}" title="${esc(b.hint)}">${esc(b.kw)}</button>`).join('');
+
+        elView.innerHTML = `
+            <div class="wb-toolbar"><h2>Query wizard</h2></div>
+            <p class="muted">Click or drag a block onto the canvas, fill in its text, and drag chips to reorder.
+                The SQL builds live below — run it when it reads right.</p>
+            <div class="wiz-palette">${palette}</div>
+            <div class="wiz-canvas" id="wiz-canvas"></div>
+            <div id="wiz-warn"></div>
+            <pre class="ran-sql wiz-preview" id="wiz-preview"></pre>
+            <div class="wb-form-actions">
+                <button type="button" class="primary" id="wiz-run">Run query</button>
+                <button type="button" id="wiz-clear">Clear</button>
+            </div>`;
+
+        getJSON('/db/tables').then((d) => {
+            wizTables = d.tables || [];
+            renderWizCanvas(); // fill table dropdowns once the list arrives
+        });
+
+        elView.querySelectorAll('.wiz-block').forEach((btn) => {
+            btn.onclick = () => wizAdd(btn.dataset.kw, null);
+            btn.ondragstart = (e) => e.dataTransfer.setData('text/plain', 'new:' + btn.dataset.kw);
+        });
+
+        const canvas = document.getElementById('wiz-canvas');
+        canvas.ondragover = (e) => { e.preventDefault(); canvas.classList.add('drag-over'); };
+        canvas.ondragleave = () => canvas.classList.remove('drag-over');
+        canvas.ondrop = (e) => { e.preventDefault(); canvas.classList.remove('drag-over'); wizDrop(e, null); };
+
+        document.getElementById('wiz-run').onclick = runWizard;
+        document.getElementById('wiz-clear').onclick = () => { wiz = []; renderWizCanvas(); syncWiz(); };
+
+        renderWizCanvas();
+        syncWiz();
+    }
+
+    function wizAdd(kw, at) {
+        const blk = WIZ_BLOCKS.find((b) => b.kw === kw);
+        if (!blk) return;
+        const item = { kw: blk.kw, kind: blk.kind, ph: blk.ph || '', value: '', col: '', op: '=', dir: 'ASC' };
+        at === null ? wiz.push(item) : wiz.splice(at, 0, item);
+        renderWizCanvas();
+        syncWiz();
+    }
+
+    // Columns offered in the dropdowns = union of the columns of every table
+    // block on the canvas (fetched once per table, then cached).
+    async function refreshWizColumns() {
+        const tables = [...new Set(wiz.filter((b) => b.kind === 'table' && b.value).map((b) => b.value))];
+        const lists = await Promise.all(tables.map(async (t) => {
+            if (!wizColCache[t]) {
+                const d = await getJSON('/db/columns?name=' + encodeURIComponent(t));
+                wizColCache[t] = (d.columns || []).map((c) => c.name);
+            }
+            return wizColCache[t];
+        }));
+        wizColumns = [...new Set(lists.flat())];
+        renderWizCanvas();
+    }
+
+    function wizDrop(e, target) {
+        const d = e.dataTransfer.getData('text/plain');
+        if (d.startsWith('new:')) {
+            wizAdd(d.slice(4), target);
+        } else if (d.startsWith('move:')) {
+            const from = +d.slice(5);
+            const item = wiz.splice(from, 1)[0];
+            let to = target === null ? wiz.length : target;
+            if (target !== null && from < target) to--; // removal shifted the target left
+            wiz.splice(to, 0, item);
+            renderWizCanvas();
+            syncWiz();
+        }
+    }
+
+    // Reusable <option> builders. A previously chosen value that no longer
+    // exists (table dropped, column renamed) is kept as an extra option so the
+    // chip doesn't silently lose it.
+    function wizOptions(list, selected, placeholder) {
+        return `<option value="">${esc(placeholder)}</option>`
+            + (selected && !list.includes(selected) ? `<option value="${esc(selected)}" selected>${esc(selected)}</option>` : '')
+            + list.map((v) => `<option value="${esc(v)}"${v === selected ? ' selected' : ''}>${esc(v)}</option>`).join('');
+    }
+
+    function wizChipBody(b) {
+        const val = `<input type="text" value="${esc(b.value)}" placeholder="${esc(b.ph)}" autocapitalize="none">`;
+        const colPh = wizColumns.length ? 'column…' : 'pick a table first';
+        switch (b.kind) {
+            case 'table':
+                return `<select class="wiz-in" data-f="value">${wizOptions(wizTables, b.value, 'table…')}</select>`;
+            case 'columns':
+                return val + `<select class="wiz-addcol" title="Append a column">${wizOptions(['*', ...wizColumns], '', 'add ▾')}</select>`;
+            case 'condition':
+                return `<select class="wiz-in" data-f="col">${wizOptions(wizColumns, b.col, colPh)}</select>`
+                    + `<select class="wiz-in wiz-op" data-f="op">${wizOptions(WIZ_OPS, b.op, 'op…')}</select>`
+                    + `<input type="text" value="${esc(b.value)}" placeholder="100 or 'text'" autocapitalize="none">`;
+            case 'orderby':
+                return `<select class="wiz-in" data-f="col">${wizOptions(wizColumns, b.col, colPh)}</select>`
+                    + `<select class="wiz-in" data-f="dir">${wizOptions(['ASC', 'DESC'], b.dir, 'ASC')}</select>`;
+            case 'set':
+                return `<select class="wiz-in" data-f="col">${wizOptions(wizColumns, b.col, colPh)}</select>`
+                    + `<span class="wiz-kw">=</span>`
+                    + `<input type="text" value="${esc(b.value)}" placeholder="5 or 'text'" autocapitalize="none">`;
+            default: // 'text'
+                return val;
+        }
+    }
+
+    function renderWizCanvas() {
+        const canvas = document.getElementById('wiz-canvas');
+        if (!canvas) return; // wizard not on screen
+        canvas.innerHTML = wiz.length ? '' : '<span class="muted">Drop blocks here, or click one above.</span>';
+        wiz.forEach((b, i) => {
+            const chip = document.createElement('span');
+            chip.className = 'wiz-chip';
+            chip.draggable = true;
+            chip.innerHTML = `<span class="wiz-kw">${esc(b.kw)}</span>` + wizChipBody(b)
+                + `<button type="button" class="link danger" title="Remove block">✕</button>`;
+
+            const inp = chip.querySelector('input');
+            if (inp) {
+                const fit = () => { inp.style.width = Math.max(10, inp.value.length + 2) + 'ch'; };
+                fit();
+                inp.oninput = () => { b.value = inp.value; fit(); syncWiz(); };
+            }
+            chip.querySelectorAll('select.wiz-in').forEach((sel) => {
+                sel.onchange = () => {
+                    b[sel.dataset.f] = sel.value;
+                    syncWiz();
+                    if (b.kind === 'table') refreshWizColumns(); // new table → new column lists
+                };
+            });
+            const addCol = chip.querySelector('select.wiz-addcol');
+            if (addCol) {
+                addCol.onchange = () => {
+                    const c = addCol.value;
+                    if (c) {
+                        // '*' (or starting fresh) replaces; otherwise append with a comma.
+                        b.value = (c === '*' || !b.value.trim() || b.value.trim() === '*') ? c : b.value.trim() + ', ' + c;
+                        renderWizCanvas();
+                        syncWiz();
+                    }
+                };
+            }
+            // Typing or picking inside the chip must not start a chip drag.
+            chip.querySelectorAll('input, select').forEach((el) => {
+                el.onfocus = () => { chip.draggable = false; };
+                el.onblur = () => { chip.draggable = true; };
+            });
+
+            chip.querySelector('button.danger').onclick = () => { wiz.splice(i, 1); renderWizCanvas(); syncWiz(); };
+            chip.ondragstart = (e) => e.dataTransfer.setData('text/plain', 'move:' + i);
+            chip.ondragover = (e) => { e.preventDefault(); e.stopPropagation(); };
+            chip.ondrop = (e) => { e.preventDefault(); e.stopPropagation(); wizDrop(e, i); }; // drop on a chip = insert before it
+            canvas.appendChild(chip);
+        });
+    }
+
+    function wizSql() {
+        return wiz.map((b) => {
+            const v = b.value.trim();
+            switch (b.kind) {
+                case 'condition':
+                    return [b.kw, b.col, (b.col || v) ? b.op : '', v].filter(Boolean).join(' ');
+                case 'orderby':
+                    return b.col ? `${b.kw} ${b.col} ${b.dir}` : b.kw;
+                case 'set':
+                    return (b.col || v) ? `${b.kw} ${b.col} = ${v}`.replace(/\s+/g, ' ').trim() : b.kw;
+                default:
+                    return v ? `${b.kw} ${v}` : b.kw;
+            }
+        }).join(' ');
+    }
+
+    function syncWiz() {
+        document.getElementById('wiz-preview').textContent = wiz.length ? wizSql() : '-- your query appears here';
+        const risky = wiz.some((b) => b.kw === 'UPDATE' || b.kw === 'DELETE FROM');
+        const hasWhere = wiz.some((b) => b.kw === 'WHERE');
+        document.getElementById('wiz-warn').innerHTML = risky && !hasWhere
+            ? '<p class="alert error">⚠ UPDATE / DELETE without a WHERE affects every row in the table.</p>' : '';
+    }
+
+    async function runWizard() {
+        if (!wiz.length) return;
+        const data = await postJSON('/db/run-sql', { sql: wizSql() });
+        if (data.ok && data.isResultSet) {
+            showEvidence(data.sql, gridHtml({ columns: data.columns, rows: data.rows }),
+                `${data.rows.length} row(s) · ${data.durationMs} ms`);
+        } else {
+            showEvidence(data.sql || wizSql(), outcome(data), '');
+        }
+        loadTables(); // the wizard can change data/tables; keep the sidebar honest
+    }
+
     // ---- wire up ------------------------------------------------------------
     elTables.addEventListener('click', (e) => {
         const b = e.target.closest('.wb-table-btn');
         if (b) openTable(b.dataset.table, 1);
     });
     document.getElementById('wb-new-table').onclick = showCreateTable;
+    document.getElementById('wb-wizard').onclick = showWizard;
+    document.getElementById('wb-export-all').onclick = exportAllSql;
 
     loadTables();
 })();

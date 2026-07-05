@@ -98,6 +98,7 @@ final class DbController
             try {
                 $inspector = new SchemaInspector($pdo);
                 $columns = $inspector->columns($name);
+                $foreign = $inspector->foreignKeys($name);
                 $total   = $inspector->rowCount($name);
 
                 $pages  = max(1, (int) ceil($total / $perPage));
@@ -121,17 +122,34 @@ final class DbController
                 : array_map(static fn(array $c): string => $c['name'], $columns);
 
             return Response::json([
-                'table'      => $name,
-                'columns'    => $columns,
-                'primaryKey' => $primaryKey,
-                'sql'        => $result->sql,
-                'grid'       => ['columns' => $gridColumns, 'rows' => $result->rows],
-                'page'       => $page,
-                'pages'      => $pages,
-                'total'      => $total,
-                'perPage'    => $perPage,
+                'table'       => $name,
+                'columns'     => $columns,
+                'primaryKey'  => $primaryKey,
+                'foreignKeys' => $foreign,
+                'sql'         => $result->sql,
+                'grid'        => ['columns' => $gridColumns, 'rows' => $result->rows],
+                'page'        => $page,
+                'pages'       => $pages,
+                'total'       => $total,
+                'perPage'     => $perPage,
                 'perPageOptions' => self::PER_PAGE_OPTIONS,
             ]);
+        });
+    }
+
+    /**
+     * Column metadata only — feeds the FK modal's "references column" dropdown
+     * without running a browse query (an app-internal read, not evidence).
+     */
+    public function columns(Request $request): Response
+    {
+        $name = (string) $request->input('name', '');
+        return $this->withSandbox($request, static function (PDO $pdo) use ($name): Response {
+            try {
+                return Response::json(['columns' => (new SchemaInspector($pdo))->columns($name)]);
+            } catch (SqlException | \PDOException $e) {
+                return Response::json(['error' => $e->getMessage()], 400);
+            }
         });
     }
 
@@ -168,6 +186,39 @@ final class DbController
         $body = $this->jsonBody();
         return $this->buildAndRun($request, static fn(SqlBuilder $b): string =>
             $b->delete((string) ($body['table'] ?? ''), $body['where'] ?? []));
+    }
+
+    /**
+     * Raw SQL assembled by the query wizard. Runs through the exact same
+     * pipeline (guards + history + evidence envelope) as the console — the
+     * wizard is a SQL writing aid, not a bypass.
+     */
+    public function runSql(Request $request): Response
+    {
+        $body = $this->jsonBody();
+        return $this->buildAndRun($request, static fn(SqlBuilder $b): string =>
+            (string) ($body['sql'] ?? ''));
+    }
+
+    public function addForeignKey(Request $request): Response
+    {
+        $body = $this->jsonBody();
+        return $this->buildAndRun($request, static fn(SqlBuilder $b): string =>
+            $b->addForeignKey(
+                (string) ($body['table'] ?? ''),
+                (string) ($body['column'] ?? ''),
+                (string) ($body['refTable'] ?? ''),
+                (string) ($body['refColumn'] ?? ''),
+                (string) ($body['onDelete'] ?? 'RESTRICT'),
+                (string) ($body['onUpdate'] ?? 'RESTRICT'),
+            ));
+    }
+
+    public function dropForeignKey(Request $request): Response
+    {
+        $body = $this->jsonBody();
+        return $this->buildAndRun($request, static fn(SqlBuilder $b): string =>
+            $b->dropForeignKey((string) ($body['table'] ?? ''), (string) ($body['constraint'] ?? '')));
     }
 
     // ---- plumbing -----------------------------------------------------------

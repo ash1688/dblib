@@ -13,7 +13,7 @@ $user = $user ?? null;
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="<?= View::e(\Dblib\Support\Csrf::token()) ?>">
     <title><?= View::e($title ?? 'dblib') ?></title>
-    <link rel="stylesheet" href="<?= View::e($basePath) ?>/assets/css/app.css">
+    <link rel="stylesheet" href="<?= View::asset($basePath, 'css/app.css') ?>">
 </head>
 <body>
 <header class="topbar">

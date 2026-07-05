@@ -8,6 +8,7 @@
     --border: #2c313b;
     --ok: #3ddc91;
     --err: #ff6b6b;
+    --fk: #ffab5e;
     --radius: 10px;
 }
 
@@ -229,7 +230,117 @@ button.danger { background: rgba(255,107,107,.15); color: var(--err); }
 .wb-field-input select { width: 110px; }
 .wb-form-actions { display: flex; gap: 10px; margin-top: 16px; }
 
+/* ---- key colour-coding: PK blue, FK orange ---- */
+.col-pk { color: var(--accent); }
+.col-fk { color: var(--fk); }
+.wb-key-legend { font-size: 13px; }
+
+/* ---- foreign keys ---- */
+.wb-fk { white-space: nowrap; color: var(--fk); }
+.wb-fk .muted { font-size: 12px; margin: 0 4px; }
+
+.wb-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, .55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 50;
+}
+.wb-modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px;
+    width: 100%;
+    max-width: 480px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+.wb-modal h2 { margin-top: 0; }
+.wb-modal select {
+    width: 100%;
+    margin-top: 6px;
+    padding: 10px 12px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font: inherit;
+}
+.wb-fk-help {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+    color: var(--muted);
+    margin: 6px 0 0;
+}
+
+/* ---- query wizard ---- */
+.wiz-palette { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+.wiz-block {
+    background: var(--accent);
+    color: #fff;
+    border-radius: 999px;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-family: ui-monospace, Consolas, monospace;
+    cursor: grab;
+}
+.wiz-block:active { cursor: grabbing; }
+
+.wiz-canvas {
+    min-height: 96px;
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-content: flex-start;
+    margin-bottom: 12px;
+}
+.wiz-canvas.drag-over { border-color: var(--accent); }
+
+.wiz-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 12px;
+    cursor: grab;
+}
+.wiz-chip:active { cursor: grabbing; }
+.wiz-kw {
+    color: var(--accent);
+    font-weight: 600;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 14px;
+    white-space: nowrap;
+}
+.wiz-chip input, .wiz-chip select {
+    width: auto;
+    margin: 0;
+    padding: 4px 10px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 13px;
+}
+.wiz-chip select.wiz-op { min-width: 4.5em; text-align: center; }
+.wiz-chip select.wiz-addcol { color: var(--muted); max-width: 7em; }
+.wiz-preview { margin: 12px 0 0; }
+
 .wb-cols input[type=text], .wb-cols select { margin: 0; }
+.wb-cols .ct-name { min-width: 14em; }
 .wb-cols .ct-size { width: 9em; }
 .wb-cols .ct-size:disabled { opacity: .45; }
 .wb-cols td.center, .wb-cols th { text-align: center; }

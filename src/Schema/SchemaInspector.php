@@ -45,6 +45,40 @@ final class SchemaInspector
         ], $rows);
     }
 
+    /**
+     * Foreign keys defined on the table, with their referential actions.
+     * information_schema only shows the student's own schema, so this stays
+     * within the sandbox like the other reads here.
+     *
+     * @return list<array{constraint:string,column:string,refTable:string,refColumn:string,onDelete:string,onUpdate:string}>
+     */
+    public function foreignKeys(string $table): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT kcu.CONSTRAINT_NAME, kcu.COLUMN_NAME,
+                    kcu.REFERENCED_TABLE_NAME, kcu.REFERENCED_COLUMN_NAME,
+                    rc.DELETE_RULE, rc.UPDATE_RULE
+             FROM information_schema.KEY_COLUMN_USAGE kcu
+             JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
+               ON rc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA
+              AND rc.CONSTRAINT_NAME  = kcu.CONSTRAINT_NAME
+             WHERE kcu.TABLE_SCHEMA = DATABASE()
+               AND kcu.TABLE_NAME = ?
+               AND kcu.REFERENCED_TABLE_NAME IS NOT NULL
+             ORDER BY kcu.CONSTRAINT_NAME, kcu.ORDINAL_POSITION'
+        );
+        $stmt->execute([$table]);
+
+        return array_map(static fn(array $r): array => [
+            'constraint' => (string) $r['CONSTRAINT_NAME'],
+            'column'     => (string) $r['COLUMN_NAME'],
+            'refTable'   => (string) $r['REFERENCED_TABLE_NAME'],
+            'refColumn'  => (string) $r['REFERENCED_COLUMN_NAME'],
+            'onDelete'   => (string) $r['DELETE_RULE'],
+            'onUpdate'   => (string) $r['UPDATE_RULE'],
+        ], $stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
     public function rowCount(string $table): int
     {
         return (int) $this->pdo->query('SELECT COUNT(*) FROM ' . Identifier::quote($table))->fetchColumn();

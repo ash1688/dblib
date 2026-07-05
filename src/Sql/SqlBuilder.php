@@ -43,6 +43,12 @@ final class SqlBuilder
         'YEAR'         => null,
     ];
 
+    /**
+     * Referential actions accepted for ON DELETE / ON UPDATE. Validated as an
+     * allow-list so the action fragment is always one of these exact strings.
+     */
+    private const FK_ACTIONS = ['RESTRICT', 'CASCADE', 'SET NULL', 'NO ACTION'];
+
     /** Bounds for the 'length' types. */
     private const LENGTH_BOUNDS = [
         'CHAR'    => ['min' => 1, 'max' => 255,   'default' => 1],
@@ -108,6 +114,33 @@ final class SqlBuilder
             . " (\n  " . implode(",\n  ", $defs) . "\n)";
     }
 
+    /**
+     * ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY. The constraint is named
+     * fk_{table}_{column} so students can see which link it is; every part goes
+     * through Identifier::quote and the actions through the FK_ACTIONS allow-list.
+     */
+    public function addForeignKey(
+        string $table,
+        string $column,
+        string $refTable,
+        string $refColumn,
+        string $onDelete,
+        string $onUpdate
+    ): string {
+        return 'ALTER TABLE ' . Identifier::quote($table)
+            . ' ADD CONSTRAINT ' . Identifier::quote('fk_' . $table . '_' . $column)
+            . ' FOREIGN KEY (' . Identifier::quote($column) . ')'
+            . ' REFERENCES ' . Identifier::quote($refTable) . ' (' . Identifier::quote($refColumn) . ')'
+            . ' ON DELETE ' . $this->fkAction($onDelete)
+            . ' ON UPDATE ' . $this->fkAction($onUpdate);
+    }
+
+    public function dropForeignKey(string $table, string $constraint): string
+    {
+        return 'ALTER TABLE ' . Identifier::quote($table)
+            . ' DROP FOREIGN KEY ' . Identifier::quote($constraint);
+    }
+
     public function dropTable(string $table): string
     {
         return 'DROP TABLE ' . Identifier::quote($table);
@@ -166,6 +199,15 @@ final class SqlBuilder
     {
         return 'DELETE FROM ' . Identifier::quote($table)
             . ' WHERE ' . $this->whereClause($where) . ' LIMIT 1';
+    }
+
+    private function fkAction(string $action): string
+    {
+        $action = strtoupper(trim($action));
+        if (!in_array($action, self::FK_ACTIONS, true)) {
+            throw new SqlException("Unknown referential action \"{$action}\".");
+        }
+        return $action;
     }
 
     /** @param array{mode?:string,value?:string|null} $v */

@@ -74,6 +74,8 @@ $router->post('/history/clear',    [HistoryController::class, 'clear']);
 $router->get('/teacher',                [TeacherController::class, 'dashboard']);
 $router->get('/teacher/demo',           [TeacherController::class, 'demo']);
 $router->post('/teacher/class/create',  [TeacherController::class, 'createClass']);
+$router->post('/teacher/create-teacher',[TeacherController::class, 'createTeacher']);
+$router->post('/teacher/reset-teacher-password', [TeacherController::class, 'resetTeacherPassword']);
 $router->get('/teacher/class',          [TeacherController::class, 'showClass']);
 $router->post('/teacher/student/create',[TeacherController::class, 'createStudent']);
 $router->post('/teacher/student/import',[TeacherController::class, 'importRoster']);

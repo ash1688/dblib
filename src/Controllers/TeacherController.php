@@ -48,6 +48,7 @@ final class TeacherController
             'basePath' => $request->basePath(),
             'user'     => $teacher,
             'classes'  => $this->classes->forTeacher((int) $teacher['id']),
+            'teachers' => (new AccountService())->teachers(),
             'flash'    => $this->takeFlash(),
         ]));
     }
@@ -160,6 +161,84 @@ final class TeacherController
             $this->flash('ok', "Seed \"{$seed['name']}\" deleted.");
             return Response::redirect($request->basePath() . '/teacher/class?id=' . (int) $seed['class_id']);
         }
+        return Response::redirect($request->basePath() . '/teacher');
+    }
+
+    /**
+     * Create a colleague's teacher account. Any signed-in teacher can do this
+     * (small-department trust model). Refuses an email that's already taken —
+     * AccountService::createTeacher() upserts, and this path must never let one
+     * teacher quietly reset another's password.
+     */
+    public function createTeacher(Request $request): Response
+    {
+        $teacher = $this->teacher();
+        if ($teacher === null) {
+            return Response::redirect($request->basePath() . '/login');
+        }
+
+        $email    = trim((string) $request->input('email', ''));
+        $name     = trim((string) $request->input('name', '')) ?: null;
+        $password = (string) $request->input('password', '');
+
+        $accounts = new AccountService();
+        if ($accounts->emailInUse($email)) {
+            $this->flash('error', "An account with the email {$email} already exists.");
+            return Response::redirect($request->basePath() . '/teacher');
+        }
+
+        $generated = $password === '';
+        if ($generated) {
+            $password = StudentEnroller::temporaryPassword();
+        }
+
+        try {
+            $accounts->createTeacher($email, $password, $name);
+            $shown = $generated
+                ? " Temporary password: {$password} — give it to them now; it isn't shown again."
+                : '';
+            $this->flash('ok', "Teacher account {$email} created.{$shown}");
+        } catch (AccountValidationException $e) {
+            $this->flash('error', 'Could not create the account: ' . $e->getMessage());
+        } catch (\PDOException $e) {
+            $this->flash('error', 'Database error while creating the account.');
+        }
+
+        return Response::redirect($request->basePath() . '/teacher');
+    }
+
+    /**
+     * Reset a colleague's password to a fresh temporary one (the recovery path
+     * when a teacher forgets theirs). Your own password changes go through the
+     * Change password form — resetting yourself to a random temp is refused.
+     */
+    public function resetTeacherPassword(Request $request): Response
+    {
+        $teacher = $this->teacher();
+        if ($teacher === null) {
+            return Response::redirect($request->basePath() . '/login');
+        }
+
+        $targetId = (int) $request->input('user_id', '0');
+        if ($targetId === (int) $teacher['id']) {
+            $this->flash('error', 'Use the Change password form for your own account.');
+            return Response::redirect($request->basePath() . '/teacher');
+        }
+
+        $stmt = MetadataConnection::get()->prepare(
+            "SELECT id, email FROM users WHERE id = ? AND role = 'teacher' LIMIT 1"
+        );
+        $stmt->execute([$targetId]);
+        $target = $stmt->fetch();
+
+        if ($target === false) {
+            $this->flash('error', 'Teacher account not found.');
+        } else {
+            $temp = StudentEnroller::temporaryPassword();
+            (new AccountService())->setPassword((int) $target['id'], $temp);
+            $this->flash('ok', "New temporary password for {$target['email']}: {$temp} — give it to them now; it isn't shown again.");
+        }
+
         return Response::redirect($request->basePath() . '/teacher');
     }
 

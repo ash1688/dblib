@@ -2,6 +2,7 @@
 /** @var string $basePath */
 /** @var array<string,mixed> $user */
 /** @var list<array<string,mixed>> $classes */
+/** @var list<array<string,mixed>> $teachers */
 /** @var array{type:string,message:string}|null $flash */
 use Dblib\Support\View;
 $title = 'Teacher · dblib';
@@ -48,6 +49,48 @@ ob_start(); ?>
             <input type="text" name="name" required placeholder="e.g. Databases — Group A">
         </label>
         <button type="submit" class="primary">Create class</button>
+    </form>
+</section>
+
+<section class="card">
+    <h2>Teachers</h2>
+    <div class="grid-wrap">
+        <table class="grid">
+            <thead><tr><th>Email</th><th>Name</th><th>Created</th><th></th></tr></thead>
+            <tbody>
+            <?php foreach ($teachers as $t): ?>
+                <tr>
+                    <td><?= View::e($t['email']) ?><?= (int) $t['id'] === (int) $user['id'] ? ' <span class="muted">(you)</span>' : '' ?></td>
+                    <td><?= View::e($t['display_name'] ?? '') ?: '—' ?></td>
+                    <td><?= View::e($t['created_at']) ?></td>
+                    <td>
+                        <?php if ((int) $t['id'] !== (int) $user['id']): ?>
+                            <form method="post" action="<?= View::e($basePath) ?>/teacher/reset-teacher-password" class="inline"
+                                  onsubmit="return confirm('Reset the password for <?= View::e($t['email']) ?>? Their current password stops working immediately.');">
+                                <?= \Dblib\Support\Csrf::field() ?>
+                                <input type="hidden" name="user_id" value="<?= (int) $t['id'] ?>">
+                                <button type="submit" class="link">Reset password</button>
+                            </form>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+    <form method="post" action="<?= View::e($basePath) ?>/teacher/create-teacher" class="narrow-form">
+        <h3>New teacher account</h3>
+        <?= \Dblib\Support\Csrf::field() ?>
+        <label>Email (their login)
+            <input type="email" name="email" required placeholder="e.g. nat@college.ac.uk">
+        </label>
+        <label>Display name
+            <input type="text" name="name" placeholder="e.g. Nat">
+        </label>
+        <label>Password <span class="muted">— leave blank to generate a temporary one</span>
+            <input type="password" name="password" autocomplete="new-password" minlength="6" placeholder="min. 6 characters">
+        </label>
+        <button type="submit" class="primary">Create teacher</button>
     </form>
 </section>
 

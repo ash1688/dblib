@@ -110,6 +110,23 @@ final class AccountService
         return $this->idByColumn('student_id', $studentId);
     }
 
+    /** Is this email already taken by any account (teacher or student)? */
+    public function emailInUse(string $email): bool
+    {
+        $stmt = $this->db()->prepare('SELECT 1 FROM users WHERE email = ? LIMIT 1');
+        $stmt->execute([trim($email)]);
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /** @return list<array{id:int,email:string,display_name:?string,created_at:string}> */
+    public function teachers(): array
+    {
+        return $this->db()
+            ->query("SELECT id, email, display_name, created_at
+                     FROM users WHERE role = 'teacher' ORDER BY created_at, id")
+            ->fetchAll(PDO::FETCH_ASSOC);
+    }
+
     /** @return int|null the user id of an existing student, or null */
     public function findStudentByStudentId(string $studentId): ?int
     {

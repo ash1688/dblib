@@ -119,14 +119,40 @@ docker compose exec app php cli/provision_student.php \
 (On Dokploy, use the service's Terminal tab or `docker exec` into the `app`
 container.)
 
+## Backup and restore
+
+Any teacher can download a full backup from the dashboard (**Backup →
+Download backup**, after re-entering their password). The bundle is a
+`dblib-backup-<timestamp>.tar.gz` holding:
+
+- `dblib-backup.sql`: the metadata DB, every student sandbox DB, and the
+  scoped MySQL accounts with their password hashes and grants;
+- `credential.key`: the AES key that decrypts stored sandbox credentials;
+- `manifest.json` and a `README.txt` with the restore steps.
+
+That is everything needed to stand the service up elsewhere, so treat the file
+as sensitive. To restore onto a fresh install (Docker or XAMPP):
+
+```bash
+docker compose cp dblib-backup-....tar.gz app:/tmp/backup.tar.gz
+docker compose exec app php cli/restore_backup.php --file=/tmp/backup.tar.gz --replace-key
+```
+
+Add `--dry-run` first to see what it would do. The script refuses to overwrite
+a different existing key unless `--replace-key` is given, replays the SQL on
+the provisioning connection (tables are dropped and recreated, so it is safe to
+run twice), then installs the key. The SQL also loads with the plain `mariadb`
+CLI if you prefer to restore by hand.
+
 ## Gotchas
 
 - **Persistent volumes:** `db-data` (MariaDB) and `secrets` (the encryption
   key). **Do not** `docker compose down -v` on a server. It destroys all student
   databases *and* the key that decrypts their stored credentials. Dokploy
   preserves named volumes across normal redeploys.
-- **The key is irreplaceable:** back up the `secrets` volume. Moving hosts
-  means moving both volumes (or a dump plus the key file).
+- **The key is irreplaceable:** take a dashboard backup (above) before any
+  risky change, and keep one off the server. Moving hosts is a backup on the
+  old one and `restore_backup.php` on the new one.
 - **HTTP-only deployments** (IP + port, or an internal subdomain without TLS)
   serve the session cookie without `Secure`. Fine on the LAN; revisit if the
   app ever becomes reachable from outside.

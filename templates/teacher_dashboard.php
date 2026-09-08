@@ -95,6 +95,21 @@ ob_start(); ?>
 </section>
 
 <section class="card narrow-form">
+    <h2>Backup</h2>
+    <p class="muted">Downloads one file holding every database (the app's own and
+        every student's) plus the credential key, ready to restore on another
+        server with <code>php cli/restore_backup.php</code>. It contains everything
+        needed to run this service, so store it somewhere private.</p>
+    <form method="post" action="<?= View::e($basePath) ?>/teacher/backup">
+        <?= \Dblib\Support\Csrf::field() ?>
+        <label>Confirm your password
+            <input type="password" name="password" required autocomplete="current-password">
+        </label>
+        <button type="submit" class="primary">Download backup</button>
+    </form>
+</section>
+
+<section class="card narrow-form">
     <h2>Change password</h2>
     <form method="post" action="<?= View::e($basePath) ?>/account/password">
         <?= \Dblib\Support\Csrf::field() ?>

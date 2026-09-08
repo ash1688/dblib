@@ -7,6 +7,7 @@ namespace Dblib\Controllers;
 use Dblib\Accounts\AccountService;
 use Dblib\Accounts\AccountValidationException;
 use Dblib\Auth\Auth;
+use Dblib\Backup\BackupService;
 use Dblib\Classroom\ClassService;
 use Dblib\Crypto\CredentialCipher;
 use Dblib\Database\MetadataConnection;
@@ -240,6 +241,36 @@ final class TeacherController
         }
 
         return Response::redirect($request->basePath() . '/teacher');
+    }
+
+    /**
+     * Full-service backup download: every database plus the credential key,
+     * bundled for cli/restore_backup.php. Because the bundle contains the key,
+     * the teacher must re-enter their password. A session left open on a
+     * classroom PC must not be enough to walk off with everything.
+     */
+    public function backup(Request $request): Response
+    {
+        $teacher = $this->teacher();
+        if ($teacher === null) {
+            return Response::redirect($request->basePath() . '/login');
+        }
+
+        $password = (string) $request->input('password', '');
+        if ($password === '' || !password_verify($password, (string) $teacher['password_hash'])) {
+            $this->flash('error', 'Backup not downloaded: that password did not match your account.');
+            return Response::redirect($request->basePath() . '/teacher');
+        }
+
+        try {
+            $bundle = (new BackupService())->create();
+        } catch (\Throwable $e) {
+            error_log('dblib backup failed: ' . $e->getMessage());
+            $this->flash('error', 'Backup failed on the server. The error has been logged.');
+            return Response::redirect($request->basePath() . '/teacher');
+        }
+
+        return Response::download($bundle['bytes'], $bundle['filename'], 'application/gzip');
     }
 
     public function createStudent(Request $request): Response

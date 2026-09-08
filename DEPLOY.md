@@ -51,14 +51,11 @@ pulls that image (`pull_policy: always`), so a deploy is a pull and a restart.
 Building on the VPS alongside Traefik, Dokploy, and MariaDB is what crashed it
 on 2026-09-08; do not put `build:` back into `docker-compose.yml`.
 
-The repo is private, so the package is private too. Any host that pulls it
-needs a GitHub token with **`read:packages`**:
-
-- **Dokploy:** Settings → Registry → Add. Registry URL `ghcr.io`, username
-  `ash1688`, password = the token. Dokploy then logs the Docker daemon in
-  before each deploy.
-- **A plain VM:** `echo <token> | docker login ghcr.io -u ash1688 --password-stdin`
-  once; the credential is stored for later pulls.
+The repo is public, so the package is public and pulls need no login. If the
+repo is ever made private again, the package goes private with the next push
+and every host that pulls it needs a GitHub token with **`read:packages`**:
+Dokploy → Settings → Registry → Add (`ghcr.io`, username `ash1688`, password =
+token), or on a plain VM `echo <token> | docker login ghcr.io -u ash1688 --password-stdin`.
 
 To roll back, set `DBLIB_IMAGE_TAG=sha-xxxxxxx` (tags are listed on the
 package page) and redeploy. Wait for the Actions run to finish before hitting
@@ -67,8 +64,7 @@ Deploy, or you pull the previous build.
 ## Target A: Dokploy (subdomain via Traefik)
 
 1. **Create the service.** New project → **Compose** (not Application). Provider:
-   this repo, branch **`deploy`**, compose path `docker-compose.yml`. Add the
-   GHCR registry credential first (above).
+   this repo, branch **`deploy`**, compose path `docker-compose.yml`.
 2. **Environment.** Paste the variables above into the Environment tab. Dokploy
    writes them to a `.env` beside the compose file, which is exactly what the
    `${VAR:-default}` references expect.
@@ -95,7 +91,6 @@ Same branch, same file, no edits:
 ```bash
 git clone -b deploy <repo-url> dblib && cd dblib
 cp .env.example .env        # set passwords, teacher, and DBLIB_HTTP_PORT
-echo <token> | docker login ghcr.io -u ash1688 --password-stdin
 docker compose up -d
 sudo ufw allow 8083/tcp     # or whatever DBLIB_HTTP_PORT you chose
 ```

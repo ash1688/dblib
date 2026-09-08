@@ -21,7 +21,7 @@ cp .env.example .env      # optional — edit ports / passwords / first teacher
 docker compose up --build
 ```
 
-Then open **http://localhost:8088/** and sign in as the teacher from `.env`
+Then open **http://localhost:8083/** and sign in as the teacher from `.env`
 (default `teacher@dblib.local` / `changeme`). Provision students with the same
 CLIs, run inside the app container:
 

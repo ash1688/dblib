@@ -24,18 +24,36 @@ mkdir -p "$KEY_DIR"
 chown www-data:www-data "$KEY_DIR"
 chmod 0700 "$KEY_DIR"
 
-# 3. Wait for the database (and its provisioning user from docker/initdb).
+# 3. Trust X-Forwarded-* only from the configured proxy ranges (mod_remoteip).
+#    Unset/empty means "no proxy in front": the header is ignored entirely, so a
+#    client on the LAN can't spoof its address in the logs.
+REMOTEIP_CONF=/etc/apache2/conf-enabled/zz-dblib-remoteip.conf
+if [ -n "${DBLIB_TRUSTED_PROXIES}" ]; then
+  {
+    echo "RemoteIPHeader X-Forwarded-For"
+    for cidr in ${DBLIB_TRUSTED_PROXIES}; do
+      echo "RemoteIPInternalProxy ${cidr}"
+    done
+    # Log the client address as seen after RemoteIP substitution.
+    echo 'LogFormat "%a %l %u %t \"%r\" %>s %O \"%{Referer}i\" \"%{User-Agent}i\"" combined'
+  } > "$REMOTEIP_CONF"
+  echo "dblib: trusting X-Forwarded-For from: ${DBLIB_TRUSTED_PROXIES}"
+else
+  rm -f "$REMOTEIP_CONF"
+fi
+
+# 4. Wait for the database (and its provisioning user from docker/initdb).
 echo "dblib: waiting for database ${DBLIB_DB_HOST:-db}:${DBLIB_DB_PORT:-3306}..."
 until php /usr/local/share/wait-for-db.php 2>/dev/null; do
   sleep 2
 done
 echo "dblib: database is up."
 
-# 4. Generate the credential-encryption key once (genkey refuses to overwrite,
+# 5. Generate the credential-encryption key once (genkey refuses to overwrite,
 #    so on later boots this is a no-op and the non-zero exit is expected).
 php "$APP/cli/genkey.php" || true
 
-# 5. Apply the metadata schema (+ optional first teacher). Idempotent — safe on
+# 6. Apply the metadata schema (+ optional first teacher). Idempotent — safe on
 #    every boot.
 if [ -n "$DBLIB_TEACHER_EMAIL" ] && [ -n "$DBLIB_TEACHER_PASSWORD" ]; then
   php "$APP/cli/migrate.php" --teacher="$DBLIB_TEACHER_EMAIL" --password="$DBLIB_TEACHER_PASSWORD" --name="${DBLIB_TEACHER_NAME:-Teacher}"

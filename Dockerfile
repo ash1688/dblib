@@ -5,10 +5,13 @@
 # /dblib/ subpath to the web root (see docker/vhost.conf).
 FROM php:8.2-apache
 
+# remoteip restores the real client address behind a reverse proxy such as
+# Dokploy's Traefik; which proxies to trust is decided at runtime by the
+# entrypoint from DBLIB_TRUSTED_PROXIES.
 # pdo_mysql is the only extension the app needs that isn't already in the base
 # image (openssl ships enabled). mod_rewrite drives the front controller.
 RUN docker-php-ext-install pdo_mysql \
-    && a2enmod rewrite
+    && a2enmod rewrite remoteip
 
 # Apache vhost: document root = web root, with the front-controller rewrite and
 # the same source/secret denials the XAMPP .htaccess provides at /dblib/.

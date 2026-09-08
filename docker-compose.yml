@@ -1,10 +1,13 @@
 # dblib — full stack: Apache/PHP app + MariaDB.
 #
 # One compose file for every target:
-#   * local dev:            docker compose up --build   → http://localhost:8083/
-#   * Dokploy (Compose):    add a domain in the Domains tab → service "app", port 80
-#   * plain Docker VM:      docker compose up -d --build → http://<vm-ip>:8083/
+#   * Dokploy (Compose):    pulls the prebuilt image; add a domain → service "app", port 80
+#   * plain Docker VM:      docker compose up -d  → http://<vm-ip>:8083/
+#   * local dev:            docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 #
+# The app image is built by GitHub Actions (.github/workflows/build-image.yml)
+# and pulled from GHCR, so the server never runs a Docker build. Building on a
+# small VPS next to Traefik/Dokploy/MariaDB is what took it down once.
 # Nothing here is Dokploy-specific. Dokploy attaches its own proxy network to
 # each service at deploy time, so the same file runs unchanged on a bare VM.
 # Copy .env.example to .env (or set the variables in Dokploy) to override
@@ -30,9 +33,12 @@ services:
       retries: 30
 
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # Prebuilt on GitHub Actions. DBLIB_IMAGE_TAG picks the branch tag (deploy /
+    # main) or a pinned sha-xxxxxxx from the package's tag list to roll back.
+    image: ghcr.io/ash1688/dblib:${DBLIB_IMAGE_TAG:-deploy}
+    # Re-pull on every `up`, otherwise a redeploy keeps the stale local copy of
+    # the same tag.
+    pull_policy: always
     restart: unless-stopped
     depends_on:
       db:

@@ -18,8 +18,11 @@ first boot.
 
 ```
 cp .env.example .env      # optional — edit ports / passwords / first teacher
-docker compose up --build
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 ```
+
+(Plain `docker compose up` pulls the prebuilt image from GHCR instead of
+building; the `.dev.yml` override is what builds from your checkout.)
 
 Then open **http://localhost:8083/** and sign in as the teacher from `.env`
 (default `teacher@dblib.local` / `changeme`). Provision students with the same

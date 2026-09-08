@@ -26,10 +26,9 @@ ob_start(); ?>
 
 <section class="card" id="history">
     <div class="wb-evidence-head">
-        <h2>History <span class="muted">(this session)</span></h2>
+        <h2>Command log <span class="muted">(everything you have run — your evidence)</span></h2>
         <span class="history-tools">
             <button type="button" id="history-export" class="link">Download .sql</button>
-            <button type="button" id="history-clear" class="link">Clear</button>
         </span>
     </div>
     <ul id="history-list" class="history-list"><li class="muted">No queries yet.</li></ul>
@@ -132,11 +131,6 @@ async function loadHistory() {
     });
 }
 
-document.getElementById('history-clear').addEventListener('click', async () => {
-    await fetch(basePath + '/history/clear', { method: 'POST', headers: { 'X-CSRF-Token': CSRF } });
-    loadHistory();
-});
-
 document.getElementById('history-export').addEventListener('click', async () => {
     const res = await fetch(basePath + '/history/export');
     if ((res.headers.get('Content-Type') || '').includes('json')) {
@@ -144,7 +138,9 @@ document.getElementById('history-export').addEventListener('click', async () => 
         alert(err.error || 'Export failed.');
         return;
     }
-    triggerDownload(await res.blob(), 'dblib-session.sql');
+    const cd = res.headers.get('Content-Disposition') || '';
+    const name = (cd.match(/filename="([^"]+)"/) || [])[1] || 'dblib-command-log.sql';
+    triggerDownload(await res.blob(), name);
 });
 
 loadHistory();

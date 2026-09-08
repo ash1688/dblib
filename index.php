@@ -58,6 +58,7 @@ $router->get('/db/columns',        [DbController::class, 'columns']);
 $router->post('/db/create-table',  [DbController::class, 'createTable']);
 $router->post('/db/drop-table',    [DbController::class, 'dropTable']);
 $router->post('/db/insert',        [DbController::class, 'insert']);
+$router->post('/db/bulk-insert',   [DbController::class, 'bulkInsert']);
 $router->post('/db/update',        [DbController::class, 'update']);
 $router->post('/db/delete',        [DbController::class, 'delete']);
 $router->post('/db/add-foreign-key',  [DbController::class, 'addForeignKey']);

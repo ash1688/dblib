@@ -84,7 +84,7 @@ final class SqlBuilder
     }
 
     /**
-     * @param list<array{name:string,type:string,size?:string,nullable?:bool,primary?:bool,autoIncrement?:bool}> $columns
+     * @param list<array{name:string,type:string,size?:string,nullable?:bool,primary?:bool,autoIncrement?:bool,unique?:bool}> $columns
      */
     public function createTable(string $table, array $columns): string
     {
@@ -100,6 +100,10 @@ final class SqlBuilder
             $line .= !empty($col['nullable']) ? ' NULL' : ' NOT NULL';
             if (!empty($col['autoIncrement'])) {
                 $line .= ' AUTO_INCREMENT';
+            }
+            // A primary key is already unique; a second index on it is wasted.
+            if (!empty($col['unique']) && empty($col['primary'])) {
+                $line .= ' UNIQUE';
             }
             $defs[] = $line;
             if (!empty($col['primary'])) {

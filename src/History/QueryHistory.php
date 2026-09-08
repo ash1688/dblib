@@ -4,49 +4,79 @@ declare(strict_types=1);
 
 namespace Dblib\History;
 
+use Dblib\Database\MetadataConnection;
+use PDO;
+
 /**
- * Per-session query history — the re-run/tweak stream, like phpMyAdmin's.
+ * Per-student command log — every statement they ran, in order, with its
+ * outcome. Console runs and GUI builder actions both record here, so the
+ * student sees one uniform stream of runnable SQL.
  *
- * Lives in the PHP session: ephemeral, scoped to one login, never written to
- * the database. This is deliberately NOT the "persistent server-side audit log"
- * the design rules out — it vanishes when the session ends and no teacher can
- * see it. Console runs and GUI builder actions both record here, so the student
- * sees one uniform stream of runnable SQL.
+ * Persisted in the metadata DB (query_log) rather than the PHP session, because
+ * the log is the student's assessment evidence: it must survive logging out,
+ * a session timeout over lunch, and a redeploy mid-lesson. It stays private to
+ * the student who wrote it (no teacher view), and it cannot be cleared from
+ * the UI, which is what lets it count as evidence.
  */
 final class QueryHistory
 {
-    private const KEY = 'query_history';
-    private const MAX = 100;
+    /** Most recent entries shown in the console pane (the export has everything). */
+    private const PANE_LIMIT = 300;
+
+    private ?int $userId;
+
+    public function __construct(?int $userId = null)
+    {
+        $this->userId = $userId ?? (isset($_SESSION['user_id']) ? (int) $_SESSION['user_id'] : null);
+    }
 
     public function record(string $sql, bool $ok, string $info): void
     {
         $sql = trim($sql);
-        if ($sql === '') {
+        if ($sql === '' || $this->userId === null) {
             return;
         }
-
-        $_SESSION[self::KEY] ??= [];
-        $_SESSION[self::KEY][] = [
-            'sql'  => $sql,
-            'ok'   => $ok,
-            'info' => $info,
-            'at'   => date('H:i:s'),
-        ];
-
-        // Bound session growth — keep only the most recent MAX entries.
-        if (count($_SESSION[self::KEY]) > self::MAX) {
-            $_SESSION[self::KEY] = array_slice($_SESSION[self::KEY], -self::MAX);
-        }
+        MetadataConnection::get()
+            ->prepare('INSERT INTO query_log (user_id, sql_text, ok, info) VALUES (?, ?, ?, ?)')
+            ->execute([$this->userId, $sql, $ok ? 1 : 0, mb_substr($info, 0, 255)]);
     }
 
-    /** @return list<array{sql:string,ok:bool,info:string,at:string}> newest first */
+    /**
+     * Newest first, capped for the on-screen pane.
+     *
+     * @return list<array{sql:string,ok:bool,info:string,at:string}>
+     */
     public function all(): array
     {
-        return array_reverse($_SESSION[self::KEY] ?? []);
+        return $this->fetch('DESC', self::PANE_LIMIT);
     }
 
-    public function clear(): void
+    /**
+     * Every entry, oldest first: the replayable export.
+     *
+     * @return list<array{sql:string,ok:bool,info:string,at:string}>
+     */
+    public function chronological(): array
     {
-        unset($_SESSION[self::KEY]);
+        return $this->fetch('ASC', null);
+    }
+
+    /** @return list<array{sql:string,ok:bool,info:string,at:string}> */
+    private function fetch(string $direction, ?int $limit): array
+    {
+        if ($this->userId === null) {
+            return [];
+        }
+        $sql = "SELECT sql_text, ok, info, ran_at FROM query_log WHERE user_id = ? ORDER BY id {$direction}"
+             . ($limit !== null ? ' LIMIT ' . $limit : '');
+        $stmt = MetadataConnection::get()->prepare($sql);
+        $stmt->execute([$this->userId]);
+
+        return array_map(static fn(array $r): array => [
+            'sql'  => (string) $r['sql_text'],
+            'ok'   => (bool) $r['ok'],
+            'info' => (string) $r['info'],
+            'at'   => (string) $r['ran_at'],
+        ], $stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 }

@@ -68,6 +68,22 @@ CREATE TABLE IF NOT EXISTS seeds (
     CONSTRAINT fk_seeds_class FOREIGN KEY (class_id) REFERENCES classes (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Per-student command log: every statement run through the console or the GUI
+-- builders, with its outcome. This is the student's assessment evidence, so it
+-- lives here rather than in the PHP session and is never cleared from the UI.
+-- Private to the student (no teacher view); removed with the account.
+CREATE TABLE IF NOT EXISTS query_log (
+    id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id   INT UNSIGNED NOT NULL,
+    sql_text  MEDIUMTEXT NOT NULL,
+    ok        TINYINT(1) NOT NULL,
+    info      VARCHAR(255) NOT NULL DEFAULT '',
+    ran_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_query_log_user (user_id, id),
+    CONSTRAINT fk_query_log_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Failed-login records for rate limiting. One row per failed attempt, keyed by
 -- the login identifier; rows age out of the window and are pruned on check.
 CREATE TABLE IF NOT EXISTS login_attempts (

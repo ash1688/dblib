@@ -10,7 +10,7 @@ use Dblib\Http\Response;
 use Dblib\Sandbox\SandboxConnector;
 
 /**
- * Serves the per-session query history pane (students only).
+ * Serves the student's command log pane and its export (students only).
  */
 final class HistoryController
 {
@@ -29,29 +29,32 @@ final class HistoryController
         return Response::json(['entries' => (new QueryHistory())->all()]);
     }
 
+    /**
+     * The log is assessment evidence, so it is append-only: the route stays
+     * (old clients may still call it) but always refuses.
+     */
     public function clear(Request $request): Response
     {
-        if ($this->sandbox->student() === null) {
-            return Response::json(['error' => 'Not authenticated.'], 401);
-        }
-        (new QueryHistory())->clear();
-        return Response::json(['ok' => true]);
+        return Response::json(['error' => 'The command log cannot be cleared: it is your evidence of the work.'], 403);
     }
 
-    /** Download the session's SQL stream as a runnable .sql file. */
+    /** Download the whole command log as a runnable .sql file. */
     public function exportSql(Request $request): Response
     {
         if ($this->sandbox->student() === null) {
             return Response::json(['error' => 'Not authenticated.'], 401);
         }
 
-        // all() is newest-first; replay order is chronological.
-        $entries = array_reverse((new QueryHistory())->all());
+        $entries = (new QueryHistory())->chronological();
         if ($entries === []) {
-            return Response::json(['error' => 'No history to export yet.'], 400);
+            return Response::json(['error' => 'Nothing in the command log to export yet.'], 400);
         }
 
-        return Response::download($this->buildSqlFile($entries), 'dblib-session.sql', 'application/sql; charset=utf-8');
+        return Response::download(
+            $this->buildSqlFile($entries),
+            'dblib-command-log-' . date('Y-m-d') . '.sql',
+            'application/sql; charset=utf-8',
+        );
     }
 
     /**
@@ -62,7 +65,7 @@ final class HistoryController
         $okCount = count(array_filter($entries, static fn(array $e): bool => $e['ok']));
 
         $lines = [
-            '-- dblib session SQL export',
+            '-- dblib command log: every statement run, in order, with when it ran.',
             '-- Generated ' . date('Y-m-d H:i:s'),
             "-- {$okCount} successful statement(s); failed attempts are commented out.",
             '',

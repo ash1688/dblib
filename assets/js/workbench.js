@@ -156,8 +156,10 @@
                         </select>
                     </label>
                 </span>
-            </div>`;
+            </div>
+            ${pasteRowsHtml(table, data.total)}`;
 
+        wirePasteRows(table, page);
         document.getElementById('wb-prev').onclick = () => openTable(table, page - 1);
         document.getElementById('wb-next').onclick = () => openTable(table, page + 1);
         document.getElementById('wb-per-page').onchange = (e) => {
@@ -170,6 +172,55 @@
             b.onclick = () => deleteRow(data, grid.rows[+b.dataset.del]));
 
         showEvidence(data.sql, gridHtml(grid), `${data.total} row(s) · page ${page}/${pages}`);
+    }
+
+    // ---- paste rows (bulk insert) ------------------------------------------
+    // Unlocked once the table has at least one row: the first row goes in by
+    // hand through the form, so the student has seen that the form and an
+    // INSERT statement are the same operation before reaching for the fast one.
+    function pasteRowsHtml(table, total) {
+        if (!(total > 0)) {
+            return `<p class="muted wb-paste-locked">Add the first row with <strong>Insert row</strong>. Once this table has a row,
+                a <strong>Paste rows</strong> box appears here so the rest can go in as one INSERT.</p>`;
+        }
+        return `<section class="wb-paste">
+            <h3>Paste rows</h3>
+            <p class="muted">The Insert row form and an <code>INSERT</code> statement are the same operation — the
+                form just writes the SQL for you. Now that <strong>${esc(table)}</strong> has a row, paste the rest
+                as one statement with many rows, or load a .sql file. Only <code>INSERT INTO ${esc(table)}</code>
+                statements are accepted here; everything else belongs in the SQL console.</p>
+            <textarea id="wb-paste-sql" rows="8" spellcheck="false" placeholder="INSERT INTO ${esc(table)} (column1, column2) VALUES\n  ('first', 1),\n  ('second', 2);"></textarea>
+            <div class="wb-form-actions">
+                <button type="button" class="primary" id="wb-paste-run">Insert rows</button>
+                <label class="button ghost">Load .sql file <input type="file" id="wb-paste-file" accept=".sql,.txt,text/plain" hidden></label>
+            </div>
+        </section>`;
+    }
+
+    function wirePasteRows(table, page) {
+        const run = document.getElementById('wb-paste-run');
+        if (!run) return;
+        const box = document.getElementById('wb-paste-sql');
+        document.getElementById('wb-paste-file').onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => { box.value = String(reader.result); };
+            reader.readAsText(file);
+        };
+        run.onclick = async () => {
+            const sql = box.value.trim();
+            if (!sql) { box.focus(); return; }
+            run.disabled = true;
+            const data = await postJSON('/db/bulk-insert', { table, sql });
+            run.disabled = false;
+            if (data.ok) {
+                showEvidence(data.sql, `<p class="ok">${data.affectedRows} row(s) inserted from ${data.statements} statement(s) · ${data.durationMs} ms</p>`, '');
+                openTable(table, page);
+            } else {
+                showEvidence(data.sql, outcome(data), ''); // keep the textarea so they can fix it
+            }
+        };
     }
 
     function renderStructure(data) {
@@ -353,8 +404,10 @@
                 !isEdit ? '<option value="default">Default</option>' : '',
             ].join('');
             const val = (cur === null || cur === undefined) ? '' : esc(cur);
+            const note = c.extra === 'auto_increment' && !isEdit ? ' · filled in by the database'
+                : (c.nullable ? ' · optional, blank = NULL' : ' · required');
             return `<div class="wb-field">
-                <label>${esc(c.name)} <span class="muted">${esc(c.type)}${c.key === 'PRI' ? ' · PK' : ''}</span></label>
+                <label>${esc(c.name)} <span class="muted">${esc(c.type)}${c.key === 'PRI' ? ' · PK' : ''}${note}</span></label>
                 <div class="wb-field-input">
                     <input type="text" id="wb-in-${i}" value="${val}">
                     <select id="wb-mode-${i}" data-init="${initMode}">${opts}</select>
@@ -384,12 +437,29 @@
         };
     }
 
+    // Blank boxes: on a nullable column a blank means NULL (not ''), which is
+    // what a DATE or a foreign-key column needs; on a NOT NULL column with no
+    // default it is caught here with a readable message rather than handed to
+    // MariaDB to reject. Returns {fields} or {error}.
     function collectFields(columns) {
-        return columns.map((c, i) => ({
-            column: c.name,
-            mode: document.getElementById(`wb-mode-${i}`).value,
-            value: document.getElementById(`wb-in-${i}`).value,
-        }));
+        const fields = [];
+        for (const [i, c] of columns.entries()) {
+            const mode = document.getElementById(`wb-mode-${i}`).value;
+            const value = document.getElementById(`wb-in-${i}`).value;
+            if (mode === 'value' && value.trim() === '') {
+                if (c.nullable) {
+                    fields.push({ column: c.name, mode: 'null' });
+                    continue;
+                }
+                if (c.default === null && c.extra !== 'auto_increment') {
+                    return { error: `${c.name} can't be left blank: it is NOT NULL and has no default value. Type a value, or allow NULL on the column.` };
+                }
+                fields.push({ column: c.name, mode: 'default' });
+                continue;
+            }
+            fields.push({ column: c.name, mode, value });
+        }
+        return { fields };
     }
 
     // WHERE for edit/delete: prefer the primary key, else match the full row.
@@ -401,15 +471,19 @@
     }
 
     async function submitInsert(ctx) {
-        const data = await postJSON('/db/insert', { table: ctx.table, values: collectFields(ctx.columns) });
+        const { fields, error } = collectFields(ctx.columns);
+        if (error) { showEvidence('', `<p class="alert error">${esc(error)}</p>`, ''); return; }
+        const data = await postJSON('/db/insert', { table: ctx.table, values: fields });
         showEvidence(data.sql, outcome(data), '');
         if (data.ok) openTable(ctx.table, state.page);
     }
 
     async function submitEdit(ctx, row) {
+        const { fields, error } = collectFields(ctx.columns);
+        if (error) { showEvidence('', `<p class="alert error">${esc(error)}</p>`, ''); return; }
         const data = await postJSON('/db/update', {
             table: ctx.table,
-            set: collectFields(ctx.columns),
+            set: fields,
             where: whereFor(ctx, row),
         });
         showEvidence(data.sql, outcome(data), '');
@@ -469,7 +543,7 @@
             <form id="wb-create-form">
                 <label>Table name <input type="text" id="wb-ct-name" required autocapitalize="none"></label>
                 <table class="grid wb-cols">
-                    <thead><tr><th>Column</th><th>Type</th><th>Size</th><th>Null</th><th>PK</th><th>Auto&nbsp;inc.</th><th></th></tr></thead>
+                    <thead><tr><th>Column</th><th>Type</th><th>Size</th><th>Null</th><th>PK</th><th>Auto&nbsp;inc.</th><th title="No two rows may share a value in this column (a UNIQUE constraint). The primary key is already unique.">Unique</th><th></th></tr></thead>
                     <tbody id="wb-ct-rows"></tbody>
                 </table>
                 <button type="button" class="link" id="wb-add-col">＋ Add column</button>
@@ -494,6 +568,7 @@
             <td class="center"><input type="checkbox" class="ct-null"></td>
             <td class="center"><input type="checkbox" class="ct-pk" ${seed ? 'checked' : ''}></td>
             <td class="center"><input type="checkbox" class="ct-ai" ${seed ? 'checked' : ''}></td>
+            <td class="center"><input type="checkbox" class="ct-unique"></td>
             <td><button type="button" class="link danger ct-remove">✕</button></td>`;
         document.getElementById('wb-ct-rows').appendChild(tr);
         tr.querySelector('.ct-remove').onclick = () => tr.remove();
@@ -528,6 +603,7 @@
             nullable: tr.querySelector('.ct-null').checked,
             primary: tr.querySelector('.ct-pk').checked,
             autoIncrement: tr.querySelector('.ct-ai').checked,
+            unique: tr.querySelector('.ct-unique').checked,
         })).filter((c) => c.name !== '');
         const data = await postJSON('/db/create-table', { table, columns });
         showEvidence(data.sql, outcome(data), '');
@@ -547,19 +623,25 @@
     //   text      → free text only
     // With more than one table on the canvas, column dropdowns switch to
     // table.column so students see why qualification matters in a join.
+    //
+    // SQL has exactly one legal clause order, so the statement is assembled in
+    // that order (`order` below) whatever order the chips sit in on the canvas.
+    // Dragging still decides the order among equals: AND/OR conditions, JOINs.
+    // A block whose fields aren't filled in yet is left out of the SQL rather
+    // than sent to MariaDB as a bare keyword.
     const WIZ_BLOCKS = [
-        { kw: 'SELECT',      kind: 'columns',   ph: '* or column1, column2', hint: 'Which columns to show — * means every column.' },
-        { kw: 'FROM',        kind: 'table',     hint: 'The table to read from.' },
-        { kw: 'JOIN',        kind: 'join',      hint: 'Add a second table, matching rows where the ON columns are equal. Only rows with a match on both sides are kept (inner join).' },
-        { kw: 'LEFT JOIN',   kind: 'join',      hint: 'Like JOIN, but keeps every row from the table(s) before it even when nothing matches — the missing side shows as NULL.' },
-        { kw: 'WHERE',       kind: 'condition', hint: 'Keep only the rows that match this condition.' },
-        { kw: 'AND',         kind: 'condition', hint: 'A second condition that must ALSO be true.' },
-        { kw: 'OR',          kind: 'condition', hint: 'An alternative condition — either may be true.' },
-        { kw: 'ORDER BY',    kind: 'orderby',   hint: 'Sort the results by a column.' },
-        { kw: 'LIMIT',       kind: 'text',      ph: 'e.g. 10', hint: 'Show at most this many rows.' },
-        { kw: 'UPDATE',      kind: 'table',     hint: 'Change existing rows in this table (needs SET).' },
-        { kw: 'SET',         kind: 'set',       hint: 'What UPDATE should change: column = value.' },
-        { kw: 'DELETE FROM', kind: 'table',     hint: 'Remove rows from this table (add a WHERE!).' },
+        { kw: 'SELECT',      kind: 'columns',   order: 10, ph: '* or column1, column2', hint: 'Which columns to show — * means every column.' },
+        { kw: 'FROM',        kind: 'table',     order: 20, hint: 'The table to read from.' },
+        { kw: 'JOIN',        kind: 'join',      order: 30, hint: 'Add a second table, matching rows where the ON columns are equal. Only rows with a match on both sides are kept (inner join).' },
+        { kw: 'LEFT JOIN',   kind: 'join',      order: 30, hint: 'Like JOIN, but keeps every row from the table(s) before it even when nothing matches — the missing side shows as NULL.' },
+        { kw: 'WHERE',       kind: 'condition', order: 40, hint: 'Keep only the rows that match this condition.' },
+        { kw: 'AND',         kind: 'condition', order: 50, hint: 'A second condition that must ALSO be true.' },
+        { kw: 'OR',          kind: 'condition', order: 50, hint: 'An alternative condition — either may be true.' },
+        { kw: 'ORDER BY',    kind: 'orderby',   order: 60, hint: 'Sort the results by a column.' },
+        { kw: 'LIMIT',       kind: 'text',      order: 70, ph: 'e.g. 10', hint: 'Show at most this many rows.' },
+        { kw: 'UPDATE',      kind: 'table',     order: 10, hint: 'Change existing rows in this table (needs SET).' },
+        { kw: 'SET',         kind: 'set',       order: 20, hint: 'What UPDATE should change: column = value.' },
+        { kw: 'DELETE FROM', kind: 'table',     order: 10, hint: 'Remove rows from this table (add a WHERE!).' },
     ];
     const WIZ_OPS = ['=', '!=', '>', '<', '>=', '<=', 'LIKE'];
     let wiz = [];          // canvas model: [{kw, kind, ph, value, col, op, dir, lcol, rcol}]
@@ -577,8 +659,9 @@
 
         elView.innerHTML = `
             <div class="wb-toolbar"><h2>Query wizard</h2></div>
-            <p class="muted">Click or drag a block onto the canvas, fill in its text, and drag chips to reorder.
-                The SQL builds live below — run it when it reads right.</p>
+            <p class="muted">Click or drag a block onto the canvas and fill it in. The SQL builds live below in
+                SQL's fixed clause order; drag chips to reorder your conditions. A block left
+                empty (dashed outline) stays out of the query until you fill it in or remove it.</p>
             <div class="wiz-palette">${palette}</div>
             <div class="wiz-canvas" id="wiz-canvas"></div>
             <div id="wiz-warn"></div>
@@ -613,7 +696,7 @@
     function wizAdd(kw, at) {
         const blk = WIZ_BLOCKS.find((b) => b.kw === kw);
         if (!blk) return;
-        const item = { kw: blk.kw, kind: blk.kind, ph: blk.ph || '', value: '', col: '', op: '=', dir: 'ASC', lcol: '', rcol: '' };
+        const item = { kw: blk.kw, kind: blk.kind, order: blk.order, ph: blk.ph || '', value: '', col: '', op: '=', dir: 'ASC', lcol: '', rcol: '' };
         at === null ? wiz.push(item) : wiz.splice(at, 0, item);
         renderWizCanvas();
         syncWiz();
@@ -725,7 +808,9 @@
         canvas.innerHTML = wiz.length ? '' : '<span class="muted">Drop blocks here, or click one above.</span>';
         wiz.forEach((b, i) => {
             const chip = document.createElement('span');
-            chip.className = 'wiz-chip';
+            const done = wizComplete(b);
+            chip.className = 'wiz-chip' + (done ? '' : ' incomplete');
+            chip.title = done ? '' : 'Not filled in yet — left out of the query';
             chip.draggable = true;
             chip.innerHTML = `<span class="wiz-kw">${esc(b.kw)}</span>` + wizChipBody(b)
                 + `<button type="button" class="link danger" title="Remove block">✕</button>`;
@@ -778,8 +863,30 @@
         });
     }
 
+    // A block counts as filled in when every field it needs has something in it.
+    function wizComplete(b) {
+        const v = b.value.trim();
+        switch (b.kind) {
+            case 'table':     return v !== '';
+            case 'join':      return v !== '' && b.lcol !== '' && b.rcol !== '';
+            case 'columns':   return v !== '';
+            case 'condition': return b.col !== '' && b.op !== '' && v !== '';
+            case 'orderby':   return b.col !== '';
+            case 'set':       return b.col !== '' && v !== '';
+            default:          return v !== '';
+        }
+    }
+
+    // Filled-in blocks in canonical SQL order; canvas order breaks ties.
+    function wizOrdered() {
+        return wiz.map((b, i) => ({ b, i }))
+            .filter(({ b }) => wizComplete(b))
+            .sort((x, y) => (x.b.order - y.b.order) || (x.i - y.i))
+            .map(({ b }) => b);
+    }
+
     function wizSql() {
-        return wiz.map((b) => {
+        return wizOrdered().map((b) => {
             const v = b.value.trim();
             switch (b.kind) {
                 case 'join':
@@ -797,21 +904,44 @@
         }).join(' ');
     }
 
+    // The UPDATE / DELETE FROM block that would run without a WHERE, if any.
+    function wizUnguardedWrite() {
+        const ready = wizOrdered();
+        const write = ready.find((b) => b.kw === 'UPDATE' || b.kw === 'DELETE FROM');
+        const hasWhere = ready.some((b) => b.kw === 'WHERE');
+        return write && !hasWhere ? write : null;
+    }
+
     function syncWiz() {
-        document.getElementById('wiz-preview').textContent = wiz.length ? wizSql() : '-- your query appears here';
-        const risky = wiz.some((b) => b.kw === 'UPDATE' || b.kw === 'DELETE FROM');
-        const hasWhere = wiz.some((b) => b.kw === 'WHERE');
-        const joinNoOn = wiz.some((b) => b.kind === 'join' && b.value && !(b.lcol && b.rcol));
-        document.getElementById('wiz-warn').innerHTML = risky && !hasWhere
-            ? '<p class="alert error">⚠ UPDATE / DELETE without a WHERE affects every row in the table.</p>'
-            : joinNoOn
-                ? '<p class="alert error">⚠ A JOIN needs an ON: pick the two columns that link the tables (e.g. orders.customer_id = customers.id).</p>'
-                : '';
+        const sql = wizSql();
+        document.getElementById('wiz-preview').textContent = sql || '-- your query appears here';
+        const notes = [];
+        const write = wizUnguardedWrite();
+        if (write) {
+            notes.push(`<p class="alert error">⚠ ${esc(write.kw)} ${esc(write.value)} without a WHERE affects every row in the table.</p>`);
+        }
+        if (wiz.some((b) => b.kind === 'join' && b.value && !(b.lcol && b.rcol))) {
+            notes.push('<p class="alert error">⚠ A JOIN needs an ON: pick the two columns that link the tables (e.g. orders.customer_id = customers.id).</p>');
+        }
+        const pending = wiz.filter((b) => !wizComplete(b)).map((b) => b.kw);
+        if (pending.length) {
+            notes.push(`<p class="muted">Not in the query yet (fill in or remove): ${esc([...new Set(pending)].join(', '))}</p>`);
+        }
+        document.getElementById('wiz-warn').innerHTML = notes.join('');
     }
 
     async function runWizard() {
-        if (!wiz.length) return;
-        const data = await postJSON('/db/run-sql', { sql: wizSql() });
+        const sql = wizSql();
+        if (!sql) {
+            showEvidence('', '<p class="alert error">Nothing to run yet — fill in the blocks on the canvas first.</p>', '');
+            return;
+        }
+        // A deliberate pause, not a block: emptying a table is one click away otherwise.
+        const write = wizUnguardedWrite();
+        if (write && !confirm(`There is no WHERE, so this will ${write.kw === 'UPDATE' ? 'change' : 'delete'} EVERY row in "${write.value}".\n\nRun it anyway?`)) {
+            return;
+        }
+        const data = await postJSON('/db/run-sql', { sql });
         if (data.ok && data.isResultSet) {
             showEvidence(data.sql, gridHtml({ columns: data.columns, rows: data.rows }),
                 `${data.rows.length} row(s) · ${data.durationMs} ms`);

@@ -13,6 +13,7 @@ use Dblib\Schema\SchemaInspector;
 use Dblib\Sql\ExecutionPipeline;
 use Dblib\Sql\SqlBuilder;
 use Dblib\Sql\SqlException;
+use Dblib\Sql\SqlInspector;
 use Dblib\Support\View;
 use PDO;
 
@@ -177,6 +178,77 @@ final class DbController
         $body = $this->jsonBody();
         return $this->buildAndRun($request, static fn(SqlBuilder $b): string =>
             $b->insert((string) ($body['table'] ?? ''), $body['values'] ?? []));
+    }
+
+    /**
+     * "Paste rows": one or more INSERT statements for ONE table, pasted or
+     * loaded from a .sql file, run in a single transaction. Each statement goes
+     * through the normal pipeline (guards + history) individually, so the
+     * evidence trail is the same as typing them into the console one by one;
+     * the transaction just means a typo in row 40 leaves nothing half-done.
+     */
+    public function bulkInsert(Request $request): Response
+    {
+        $body  = $this->jsonBody();
+        $table = (string) ($body['table'] ?? '');
+        $sql   = (string) ($body['sql'] ?? '');
+        $recordHistory = $this->sandbox->student() !== null;
+
+        return $this->withSandbox($request, function (PDO $pdo) use ($table, $sql, $recordHistory): Response {
+            $inspector  = new SqlInspector($sql);
+            $statements = $inspector->rawStatements();
+            if ($statements === []) {
+                return Response::json(['ok' => false, 'sql' => '', 'error' => 'Paste at least one INSERT statement.']);
+            }
+
+            // Only INSERTs, only into this table: anything else belongs in the console.
+            $target = preg_quote($table, '/');
+            foreach ($inspector->statements() as $i => $masked) {
+                if (!preg_match('/^INSERT\s+(?:IGNORE\s+)?INTO\s+`?' . $target . '`?\s*(?:\(|VALUES|SET|SELECT|\s)/i', $masked)) {
+                    $n = $i + 1;
+                    return Response::json([
+                        'ok'    => false,
+                        'sql'   => $statements[$i],
+                        'error' => "Statement {$n} is not an INSERT INTO {$table}. Only INSERT statements for this table can be pasted here; use the SQL console for anything else.",
+                    ]);
+                }
+            }
+
+            $history  = $recordHistory ? new QueryHistory() : null;
+            $pipeline = new ExecutionPipeline($pdo);
+            $inserted = 0;
+            $ms       = 0.0;
+            $pdo->beginTransaction();
+            foreach ($statements as $i => $stmt) {
+                try {
+                    $result = $pipeline->run($stmt);
+                } catch (SqlException $e) {
+                    $pdo->rollBack();
+                    $history?->record($stmt, false, $e->getMessage());
+                    $n = $i + 1;
+                    return Response::json([
+                        'ok'    => false,
+                        'sql'   => $stmt,
+                        'error' => "Statement {$n} failed, so nothing was inserted (the earlier ones were rolled back). {$e->getMessage()}",
+                    ]);
+                }
+                $history?->record($result->sql, true, $result->affectedRows . ' row(s) affected');
+                $inserted += $result->affectedRows;
+                $ms       += $result->durationMs;
+            }
+            $pdo->commit();
+
+            return Response::json([
+                'ok'           => true,
+                'sql'          => implode(";\n", $statements) . ';',
+                'isResultSet'  => false,
+                'columns'      => [],
+                'rows'         => [],
+                'affectedRows' => $inserted,
+                'statements'   => count($statements),
+                'durationMs'   => round($ms, 2),
+            ]);
+        });
     }
 
     public function update(Request $request): Response

@@ -317,6 +317,12 @@ button.danger { background: rgba(255,107,107,.15); color: var(--err); }
     cursor: grab;
 }
 .wiz-chip:active { cursor: grabbing; }
+.wiz-chip.incomplete { border: 1px dashed #e0a63a; }
+/* ---- paste rows ---- */
+.wb-paste { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.wb-paste h3 { margin: 0 0 6px; }
+.wb-paste textarea { width: 100%; box-sizing: border-box; min-height: 140px; }
+.wb-paste-locked { margin-top: 14px; }
 .wiz-kw {
     color: var(--accent);
     font-weight: 600;

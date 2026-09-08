@@ -43,23 +43,52 @@ final class ExecutionPipeline
         $durationMs = (hrtime(true) - $start) / 1_000_000;
 
         if ($statement->columnCount() > 0) {
-            $rows    = $statement->fetchAll(PDO::FETCH_ASSOC);
-            $columns = $rows !== [] ? array_keys($rows[0]) : $this->columnsFromMeta($statement);
+            // Rows are fetched by position and re-keyed by label, so two
+            // same-named columns (typical of a JOIN: pets.name, owners.name)
+            // both survive instead of the last one silently overwriting the
+            // first as FETCH_ASSOC would.
+            $columns = $this->columnLabels($statement);
+            $rows    = array_map(
+                static fn(array $r): array => array_combine($columns, $r),
+                $statement->fetchAll(PDO::FETCH_NUM),
+            );
             return ExecutionResult::resultSet($sql, $columns, $rows, $durationMs);
         }
 
         return ExecutionResult::affected($sql, $statement->rowCount(), $durationMs);
     }
 
-    /** @return list<string> */
-    private function columnsFromMeta(\PDOStatement $statement): array
+    /**
+     * One unique label per result column. Plain column names (or aliases)
+     * normally; a name that appears more than once is qualified with its table
+     * (`owners.name`), and anything still colliding gets a numeric suffix.
+     *
+     * @return list<string>
+     */
+    private function columnLabels(\PDOStatement $statement): array
     {
-        $columns = [];
+        $metas = [];
         for ($i = 0; $i < $statement->columnCount(); $i++) {
-            $meta = $statement->getColumnMeta($i);
-            $columns[] = $meta['name'] ?? "col$i";
+            $metas[] = $statement->getColumnMeta($i) ?: [];
         }
-        return $columns;
+        $names  = array_map(static fn(array $m, int $i): string => (string) ($m['name'] ?? "col$i"), $metas, array_keys($metas));
+        $counts = array_count_values($names);
+
+        $labels = [];
+        $seen   = [];
+        foreach ($names as $i => $name) {
+            $label = $name;
+            if ($counts[$name] > 1 && ($metas[$i]['table'] ?? '') !== '') {
+                $label = $metas[$i]['table'] . '.' . $name;
+            }
+            $base = $label;
+            for ($k = 2; isset($seen[$label]); $k++) {
+                $label = "{$base} ({$k})";
+            }
+            $seen[$label] = true;
+            $labels[] = $label;
+        }
+        return $labels;
     }
 
     private function friendlyError(PDOException $e): string

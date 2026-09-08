@@ -47,6 +47,11 @@ How it maps to the manual XAMPP setup:
 
 To tear it all down (including the data + key volumes): `docker compose down -v`.
 
+**Backups:** a teacher can download everything (all databases + the encryption
+key) from the dashboard's Backup section; restore it elsewhere with
+`php cli/restore_backup.php --file=<bundle> --replace-key`. See
+[DEPLOY.md](DEPLOY.md#backup-and-restore).
+
 ## Requirements (XAMPP)
 
 - XAMPP with PHP 8.2+ and MariaDB

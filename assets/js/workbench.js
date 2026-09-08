@@ -539,14 +539,19 @@
     // ARE the query, so clause order becomes something you can see and fix by
     // dragging. Each block kind renders different inputs:
     //   table     → dropdown of the sandbox's tables
+    //   join      → table ▾ ON column ▾ = column ▾ (ON pre-filled from foreign keys)
     //   columns   → free text + an "add column" dropdown that appends to it
     //   condition → column ▾ + operator ▾ + free-text value
     //   orderby   → column ▾ + ASC/DESC ▾
     //   set       → column ▾ = free-text value
     //   text      → free text only
+    // With more than one table on the canvas, column dropdowns switch to
+    // table.column so students see why qualification matters in a join.
     const WIZ_BLOCKS = [
         { kw: 'SELECT',      kind: 'columns',   ph: '* or column1, column2', hint: 'Which columns to show — * means every column.' },
         { kw: 'FROM',        kind: 'table',     hint: 'The table to read from.' },
+        { kw: 'JOIN',        kind: 'join',      hint: 'Add a second table, matching rows where the ON columns are equal. Only rows with a match on both sides are kept (inner join).' },
+        { kw: 'LEFT JOIN',   kind: 'join',      hint: 'Like JOIN, but keeps every row from the table(s) before it even when nothing matches — the missing side shows as NULL.' },
         { kw: 'WHERE',       kind: 'condition', hint: 'Keep only the rows that match this condition.' },
         { kw: 'AND',         kind: 'condition', hint: 'A second condition that must ALSO be true.' },
         { kw: 'OR',          kind: 'condition', hint: 'An alternative condition — either may be true.' },
@@ -557,10 +562,10 @@
         { kw: 'DELETE FROM', kind: 'table',     hint: 'Remove rows from this table (add a WHERE!).' },
     ];
     const WIZ_OPS = ['=', '!=', '>', '<', '>=', '<=', 'LIKE'];
-    let wiz = [];          // canvas model: [{kw, kind, ph, value, col, op, dir}]
+    let wiz = [];          // canvas model: [{kw, kind, ph, value, col, op, dir, lcol, rcol}]
     let wizTables = [];    // table names for the table dropdowns
-    let wizColumns = [];   // union of columns of every table on the canvas
-    const wizColCache = {}; // table → [column names]
+    let wizColumns = [];   // union of columns of every table on the canvas (qualified when > 1 table)
+    const wizColCache = {}; // table → { columns: [names], fks: [{column, refTable, refColumn}] }
 
     function showWizard() {
         state.table = null;
@@ -608,25 +613,51 @@
     function wizAdd(kw, at) {
         const blk = WIZ_BLOCKS.find((b) => b.kw === kw);
         if (!blk) return;
-        const item = { kw: blk.kw, kind: blk.kind, ph: blk.ph || '', value: '', col: '', op: '=', dir: 'ASC' };
+        const item = { kw: blk.kw, kind: blk.kind, ph: blk.ph || '', value: '', col: '', op: '=', dir: 'ASC', lcol: '', rcol: '' };
         at === null ? wiz.push(item) : wiz.splice(at, 0, item);
         renderWizCanvas();
         syncWiz();
     }
 
+    // Every table currently named on the canvas (FROM / JOIN / UPDATE / DELETE), in order.
+    function wizCanvasTables() {
+        return [...new Set(wiz.filter((b) => (b.kind === 'table' || b.kind === 'join') && b.value).map((b) => b.value))];
+    }
+
     // Columns offered in the dropdowns = union of the columns of every table
-    // block on the canvas (fetched once per table, then cached).
+    // on the canvas (fetched once per table, then cached). With one table they
+    // are bare names; with two or more they become table.column, which is
+    // also what a JOIN's ON clause needs.
     async function refreshWizColumns() {
-        const tables = [...new Set(wiz.filter((b) => b.kind === 'table' && b.value).map((b) => b.value))];
-        const lists = await Promise.all(tables.map(async (t) => {
+        const tables = wizCanvasTables();
+        await Promise.all(tables.map(async (t) => {
             if (!wizColCache[t]) {
                 const d = await getJSON('/db/columns?name=' + encodeURIComponent(t));
-                wizColCache[t] = (d.columns || []).map((c) => c.name);
+                wizColCache[t] = {
+                    columns: (d.columns || []).map((c) => c.name),
+                    fks: (d.foreignKeys || []).map((f) => ({ column: f.column, refTable: f.refTable, refColumn: f.refColumn })),
+                };
             }
-            return wizColCache[t];
         }));
-        wizColumns = [...new Set(lists.flat())];
+        const qualify = tables.length > 1;
+        wizColumns = [...new Set(tables.flatMap((t) =>
+            (wizColCache[t] ? wizColCache[t].columns : []).map((c) => qualify ? `${t}.${c}` : c)))];
+        wiz.filter((b) => b.kind === 'join' && b.value && !b.lcol && !b.rcol).forEach(wizSuggestOn);
         renderWizCanvas();
+    }
+
+    // Pre-fill a JOIN's ON from a declared foreign key between the joined table
+    // and any table that comes before it on the canvas, in either direction.
+    // Students can still change it, but the common case needs no typing.
+    function wizSuggestOn(b) {
+        const others = wizCanvasTables().filter((t) => t !== b.value);
+        const own = wizColCache[b.value];
+        for (const t of others) {
+            const fk = own && own.fks.find((f) => f.refTable === t);
+            if (fk) { b.lcol = `${t}.${fk.refColumn}`; b.rcol = `${b.value}.${fk.column}`; return; }
+            const back = wizColCache[t] && wizColCache[t].fks.find((f) => f.refTable === b.value);
+            if (back) { b.lcol = `${t}.${back.column}`; b.rcol = `${b.value}.${back.refColumn}`; return; }
+        }
     }
 
     function wizDrop(e, target) {
@@ -659,6 +690,17 @@
         switch (b.kind) {
             case 'table':
                 return `<select class="wiz-in" data-f="value">${wizOptions(wizTables, b.value, 'table…')}</select>`;
+            case 'join': {
+                // ON needs qualified names even if only this table is on the canvas yet.
+                const qcols = wizCanvasTables().flatMap((t) =>
+                    (wizColCache[t] ? wizColCache[t].columns : []).map((c) => `${t}.${c}`));
+                const onPh = qcols.length ? 'table.column…' : 'pick tables first';
+                return `<select class="wiz-in" data-f="value">${wizOptions(wizTables, b.value, 'table…')}</select>`
+                    + `<span class="wiz-kw">ON</span>`
+                    + `<select class="wiz-in" data-f="lcol">${wizOptions(qcols, b.lcol, onPh)}</select>`
+                    + `<span class="wiz-kw">=</span>`
+                    + `<select class="wiz-in" data-f="rcol">${wizOptions(qcols, b.rcol, onPh)}</select>`;
+            }
             case 'columns':
                 return val + `<select class="wiz-addcol" title="Append a column">${wizOptions(['*', ...wizColumns], '', 'add ▾')}</select>`;
             case 'condition':
@@ -698,7 +740,10 @@
                 sel.onchange = () => {
                     b[sel.dataset.f] = sel.value;
                     syncWiz();
-                    if (b.kind === 'table') refreshWizColumns(); // new table → new column lists
+                    if (sel.dataset.f === 'value' && (b.kind === 'table' || b.kind === 'join')) {
+                        if (b.kind === 'join') { b.lcol = ''; b.rcol = ''; } // re-suggest ON for the new table
+                        refreshWizColumns(); // new table → new column lists
+                    }
                 };
             });
             const addCol = chip.querySelector('select.wiz-addcol');
@@ -719,7 +764,13 @@
                 el.onblur = () => { chip.draggable = true; };
             });
 
-            chip.querySelector('button.danger').onclick = () => { wiz.splice(i, 1); renderWizCanvas(); syncWiz(); };
+            chip.querySelector('button.danger').onclick = () => {
+                const droppedTable = b.kind === 'table' || b.kind === 'join';
+                wiz.splice(i, 1);
+                renderWizCanvas();
+                syncWiz();
+                if (droppedTable) refreshWizColumns(); // fewer tables → maybe back to bare column names
+            };
             chip.ondragstart = (e) => e.dataTransfer.setData('text/plain', 'move:' + i);
             chip.ondragover = (e) => { e.preventDefault(); e.stopPropagation(); };
             chip.ondrop = (e) => { e.preventDefault(); e.stopPropagation(); wizDrop(e, i); }; // drop on a chip = insert before it
@@ -731,6 +782,9 @@
         return wiz.map((b) => {
             const v = b.value.trim();
             switch (b.kind) {
+                case 'join':
+                    return [b.kw, b.value, (b.lcol || b.rcol) ? 'ON' : '', b.lcol, (b.lcol || b.rcol) ? '=' : '', b.rcol]
+                        .filter(Boolean).join(' ');
                 case 'condition':
                     return [b.kw, b.col, (b.col || v) ? b.op : '', v].filter(Boolean).join(' ');
                 case 'orderby':
@@ -747,8 +801,12 @@
         document.getElementById('wiz-preview').textContent = wiz.length ? wizSql() : '-- your query appears here';
         const risky = wiz.some((b) => b.kw === 'UPDATE' || b.kw === 'DELETE FROM');
         const hasWhere = wiz.some((b) => b.kw === 'WHERE');
+        const joinNoOn = wiz.some((b) => b.kind === 'join' && b.value && !(b.lcol && b.rcol));
         document.getElementById('wiz-warn').innerHTML = risky && !hasWhere
-            ? '<p class="alert error">⚠ UPDATE / DELETE without a WHERE affects every row in the table.</p>' : '';
+            ? '<p class="alert error">⚠ UPDATE / DELETE without a WHERE affects every row in the table.</p>'
+            : joinNoOn
+                ? '<p class="alert error">⚠ A JOIN needs an ON: pick the two columns that link the tables (e.g. orders.customer_id = customers.id).</p>'
+                : '';
     }
 
     async function runWizard() {

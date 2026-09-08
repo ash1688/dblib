@@ -146,7 +146,12 @@ final class DbController
         $name = (string) $request->input('name', '');
         return $this->withSandbox($request, static function (PDO $pdo) use ($name): Response {
             try {
-                return Response::json(['columns' => (new SchemaInspector($pdo))->columns($name)]);
+                $inspector = new SchemaInspector($pdo);
+                return Response::json([
+                    'columns'     => $inspector->columns($name),
+                    // Lets the query wizard pre-fill JOIN ... ON from declared FKs.
+                    'foreignKeys' => $inspector->foreignKeys($name),
+                ]);
             } catch (SqlException | \PDOException $e) {
                 return Response::json(['error' => $e->getMessage()], 400);
             }
